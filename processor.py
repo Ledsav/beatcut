@@ -179,7 +179,7 @@ def _build_polaroid_clips(frames, beat_times, output_w, output_h, fps,
         return c
 
     # ── Sliding window state ──
-    max_pile   = len(frames)
+    max_pile   = min(len(frames), 10)
     pile_slots = []          # list of (idx, px, py) — oldest at index 0
     pile_canvas = PILImage.new("RGB", (output_w, output_h), (0, 0, 0))
 
