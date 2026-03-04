@@ -32,6 +32,7 @@ const valDuration          = document.getElementById('val-duration');
 const selTransition        = document.getElementById('sel-transition');
 const polaroidEntryItem    = document.getElementById('polaroid-entry-item');
 const selPolaroidEntry     = document.getElementById('sel-polaroid-entry');
+const selSyncMode          = document.getElementById('sel-sync-mode');
 
 const statPhotos = document.getElementById('stat-photos');
 const statBeats  = document.getElementById('stat-beats');
@@ -118,6 +119,7 @@ btnProcess.addEventListener('click', async () => {
   fd.append('resolution',     document.getElementById('sel-resolution').value);
   fd.append('transition',     selTransition.value);
   fd.append('polaroid_entry', selPolaroidEntry.value);
+  fd.append('sync_mode', selSyncMode.value);
   fd.append('sensitivity', rangeSensitivity.value);
   fd.append('zoom',         rangeZoom.value);
   fd.append('fps',          '24');
@@ -238,6 +240,7 @@ function resetToUpload() {
   valDuration.textContent     = 'Full song';
   selTransition.value         = 'flash';
   selPolaroidEntry.value      = 'drop';
+  selSyncMode.value           = 'beat';
   updatePolaroidVisibility();
 
   progressBar.style.width     = '0%';
