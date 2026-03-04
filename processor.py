@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import librosa
 import warnings
-from PIL import Image as PILImage
+from PIL import Image as PILImage, ImageFilter as PILImageFilter
 from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
 
 warnings.filterwarnings("ignore")
@@ -122,114 +122,134 @@ def _build_polaroid_clips(frames, beat_times, output_w, output_h, fps,
     """
     Build moviepy clips for the Polaroid Stack effect.
 
-    Each beat adds one new polaroid on top of an accumulating pile on a black canvas.
-    Landing animation is controlled by polaroid_entry: drop | flash | fade | cut.
-    The pile resets every len(frames) photos so it never gets too crowded.
+    Each beat adds one new polaroid on a sliding window of max len(frames) visible
+    polaroids. When the window is full the oldest is dropped rather than resetting,
+    so the pile always looks populated. Shadow is precomputed once per polaroid and
+    reused every frame — no per-frame blur cost.
+
+    Landing styles: drop | flash | fade | cut
     """
     total = len(beat_times) - 1
     if total == 0:
         return []
 
-    # Polaroid sizing — photo occupies ~52 % of the shorter edge
     pol_size = int(min(output_w, output_h) * 0.52)
     b_side   = max(int(pol_size * 0.07), 8)
     b_top    = max(int(pol_size * 0.07), 8)
     b_bottom = max(int(pol_size * 0.26), 24)
 
-    # Deterministic random angles / offsets (seeded so same photos → same pile every run)
     rng = np.random.default_rng(seed=7)
-    angles    = rng.uniform(-14, 14,            total + 1).tolist()
-    offsets_x = rng.integers(-output_w // 14,  output_w // 14,  total + 1).tolist()
-    offsets_y = rng.integers(-output_h // 14,  output_h // 14,  total + 1).tolist()
+    angles    = rng.uniform(-14, 14,           total + 1).tolist()
+    offsets_x = rng.integers(-output_w // 14, output_w // 14, total + 1).tolist()
+    offsets_y = rng.integers(-output_h // 14, output_h // 14, total + 1).tolist()
 
-    # Pre-render every rotated polaroid as RGBA PIL image (done once, reused per frame)
-    pol_images = []
+    SHADOW_DX   = max(int(pol_size * 0.012), 5)
+    SHADOW_DY   = max(int(pol_size * 0.016), 7)
+    SHADOW_BLUR = max(int(pol_size * 0.018), 8)
+    DROP_PX     = int(min(output_w, output_h) * 0.18)
+
+    # ── Pre-render: rotated polaroid RGBA + pre-blurred shadow mask (once per slot) ──
+    pol_data = []   # list of (rotated_rgba_pil, blurred_shadow_mask_L_pil)
     for i in range(total + 1):
-        rgb = frames[i % len(frames)]
-        pil = _make_polaroid_pil(rgb, pol_size, b_side, b_top, b_bottom)
+        rgb     = frames[i % len(frames)]
+        pil     = _make_polaroid_pil(rgb, pol_size, b_side, b_top, b_bottom)
         rotated = pil.rotate(-angles[i], expand=True, resample=PILImage.BICUBIC)
-        pol_images.append(rotated)
+        alpha   = rotated.getchannel("A")
+        shadow  = alpha.point(lambda p: int(p * 0.55))
+        shadow  = shadow.filter(PILImageFilter.GaussianBlur(radius=SHADOW_BLUR))
+        pol_data.append((rotated, shadow))
 
-    def _paste(canvas_pil, pol, px, py, alpha_scale=1.0):
-        """Paste a polaroid PIL image onto canvas_pil with optional alpha scaling."""
-        mask = pol.getchannel("A")
+    # ── Paste helper: shadow first, polaroid on top ──
+    def _paste_pol(canvas, idx, px, py, alpha_scale=1.0, dy_offset=0):
+        pol, shad = pol_data[idx]
+        black = PILImage.new("RGB", pol.size, (0, 0, 0))
         if alpha_scale < 1.0:
-            mask = PILImage.fromarray(
-                (np.array(mask) * alpha_scale).clip(0, 255).astype(np.uint8)
-            )
-        canvas_pil.paste(pol.convert("RGB"), (px, py), mask)
+            s = PILImage.fromarray((np.array(shad) * alpha_scale).clip(0, 255).astype(np.uint8))
+            p = PILImage.fromarray((np.array(pol.getchannel("A")) * alpha_scale).clip(0, 255).astype(np.uint8))
+        else:
+            s, p = shad, pol.getchannel("A")
+        canvas.paste(black, (px + SHADOW_DX, py + dy_offset + SHADOW_DY), s)
+        canvas.paste(pol.convert("RGB"), (px, py + dy_offset), p)
+
+    # ── Render a full pile from a list of (idx, px, py) slots ──
+    def _render_pile(slots):
+        c = PILImage.new("RGB", (output_w, output_h), (0, 0, 0))
+        for idx, px, py in slots:
+            _paste_pol(c, idx, px, py)
+        return c
+
+    # ── Sliding window state ──
+    max_pile   = len(frames)
+    pile_slots = []          # list of (idx, px, py) — oldest at index 0
+    pile_canvas = PILImage.new("RGB", (output_w, output_h), (0, 0, 0))
 
     clips = []
-    # pile_canvas is a PIL Image that accumulates as we go
-    pile_canvas = PILImage.new("RGB", (output_w, output_h), (0, 0, 0))
 
     for i in range(total):
         if cancel_flag is not None and cancel_flag[0]:
             raise InterruptedError("Job cancelled")
 
-        # Reset pile at the start of each full photo cycle
-        if i > 0 and i % len(frames) == 0:
-            pile_canvas = PILImage.new("RGB", (output_w, output_h), (0, 0, 0))
-
-        new_pol = pol_images[i]
-        rx, ry  = new_pol.size
+        pol, _ = pol_data[i]
+        rx, ry = pol.size
         px = output_w // 2 - rx // 2 + int(offsets_x[i])
         py = output_h // 2 - ry // 2 + int(offsets_y[i])
 
         clip_dur = max(beat_times[i + 1] - beat_times[i], 1.0 / fps)
 
-        # "full" = pile_canvas + new polaroid already composited (used by cut & flash)
-        full_canvas = pile_canvas.copy()
-        _paste(full_canvas, new_pol, px, py)
-        full_rgb = np.array(full_canvas)
+        # base = pile *before* this new photo arrives (used as animation start)
+        _base = pile_canvas   # reference; animation lambdas capture .copy()
+
+        # full = pile + new photo (static end-state, used by cut & flash)
+        full_c = pile_canvas.copy()
+        _paste_pol(full_c, i, px, py)
+        full_rgb = np.array(full_c)
+
+        _i, _px, _py = i, px, py
 
         if polaroid_entry == "cut":
             clip = ImageClip(full_rgb, duration=clip_dur)
 
         elif polaroid_entry == "flash":
-            _full = full_rgb.copy()
-            _fps  = fps
-
-            def _fl_flash(gf, t, _f=_full, _fps=_fps):
+            _f, _fps2 = full_rgb.copy(), fps
+            def _fl_flash(gf, t, _f=_f, _fps=_fps2):
                 bgr = cv2.cvtColor(_f, cv2.COLOR_RGB2BGR)
                 return cv2.cvtColor(_apply_flash(bgr, t, _fps), cv2.COLOR_BGR2RGB)
-
             clip = ImageClip(full_rgb, duration=clip_dur).fl(_fl_flash)
 
         elif polaroid_entry == "fade":
-            _base = pile_canvas.copy()
-            _pol  = new_pol
-            _px, _py, _dur = px, py, clip_dur
-
-            def _fl_fade(gf, t, _b=_base, _p=_pol, _px=_px, _py=_py, _d=_dur):
+            _b = _base.copy()
+            def _fl_fade(gf, t, _b=_b, _i=_i, _px=_px, _py=_py, _d=clip_dur):
                 alpha = min(t / max(_d, 1e-6), 1.0)
                 c = _b.copy()
-                _paste(c, _p, _px, _py, alpha_scale=alpha)
+                _paste_pol(c, _i, _px, _py, alpha_scale=alpha)
                 return np.array(c)
-
             clip = ImageClip(full_rgb, duration=clip_dur).fl(_fl_fade)
 
-        else:  # "drop" (default)
-            DROP_PX = int(min(output_w, output_h) * 0.18)
-            _base = pile_canvas.copy()
-            _pol  = new_pol
-            _px, _py, _dur = px, py, clip_dur
-
-            def _fl_drop(gf, t, _b=_base, _p=_pol, _px=_px, _py=_py,
-                         _d=_dur, _dp=DROP_PX):
-                p = min(t / max(_d, 1e-6), 1.0)
-                ease = 1.0 - (1.0 - p) ** 2   # ease-out quad
-                dy = int(_dp * (1.0 - ease))
-                c = _b.copy()
-                _paste(c, _p, _px, _py - dy)
+        else:  # drop (default)
+            _b = _base.copy()
+            def _fl_drop(gf, t, _b=_b, _i=_i, _px=_px, _py=_py,
+                         _d=clip_dur, _dp=DROP_PX):
+                p    = min(t / max(_d, 1e-6), 1.0)
+                ease = 1.0 - (1.0 - p) ** 2    # ease-out quad
+                dy   = int(_dp * (1.0 - ease))
+                c    = _b.copy()
+                _paste_pol(c, _i, _px, _py, dy_offset=-dy)
                 return np.array(c)
-
             clip = ImageClip(full_rgb, duration=clip_dur).fl(_fl_drop)
 
         clips.append(clip)
 
-        # Permanently commit this polaroid to the pile canvas for next iteration
-        _paste(pile_canvas, new_pol, px, py)
+        # ── Update sliding window ──
+        if len(pile_slots) >= max_pile:
+            # Drop oldest, rerender from scratch (O(max_pile) paste ops)
+            pile_slots.pop(0)
+            pile_slots.append((i, px, py))
+            pile_canvas = _render_pile(pile_slots)
+        else:
+            # Still growing — just paste on top (O(1))
+            pile_slots.append((i, px, py))
+            pile_canvas = pile_canvas.copy()
+            _paste_pol(pile_canvas, i, px, py)
 
         if i % max(1, total // 10) == 0:
             pct = 35 + int(55 * (i + 1) / total)
