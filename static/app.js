@@ -149,7 +149,7 @@ function startSSE(jobId) {
     progressLabel.textContent = data.msg;
     appendLog(data.msg);
 
-    if (data.pct >= 100 && data.msg === 'done') {
+    if (data.pct >= 100 && data.msg === 'done' && data.file) {
       eventSource.close();
       showDone(data);
     }

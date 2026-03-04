@@ -235,7 +235,7 @@ def assemble_video(
         logger=None,
     )
 
-    _progress(100, "done")
+    _progress(99, "Export complete, preparing download...")
 
     return {
         "bpm": bpm,
