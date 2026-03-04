@@ -145,6 +145,11 @@ def progress(job_id):
                 yield f"data: {events[last]}\n\n"
                 last += 1
             if job["status"] in ("done", "error", "cancelled"):
+                # Final drain: pick up any events added between last check and status change
+                events = job["events"]
+                while last < len(events):
+                    yield f"data: {events[last]}\n\n"
+                    last += 1
                 break
             time.sleep(0.2)
 
@@ -189,4 +194,6 @@ def cancel(job_id):
 
 
 if __name__ == "__main__":
-    app.run(debug=True, threaded=True, port=5000)
+    # use_reloader=False: Werkzeug's reloader restarts the process on file changes,
+    # which wipes the in-memory jobs dict mid-processing and causes 404s on SSE.
+    app.run(debug=False, threaded=True, port=5000, use_reloader=False)

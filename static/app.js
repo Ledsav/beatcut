@@ -76,6 +76,10 @@ function setupDrop(zone, input) {
     }
   });
   zone.addEventListener('click', e => {
+    // The label's `for` attribute already triggers the input on label clicks;
+    // only call input.click() for clicks outside the label to avoid double dialog.
+    const label = zone.querySelector('label');
+    if (label && label.contains(e.target)) return;
     if (e.target !== input) input.click();
   });
 }
