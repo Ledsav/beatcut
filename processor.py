@@ -127,7 +127,7 @@ def detect_sync_points(audio_path: str, sensitivity: float, sync_mode: str):
         else:
             bpm = 0.0
 
-    else:  # "energy"
+    elif sync_mode == "energy":
         hop_length = 512
         rms = librosa.feature.rms(y=y, hop_length=hop_length)[0]
         distance = max(1, round(10 / sensitivity))
@@ -138,6 +138,8 @@ def detect_sync_points(audio_path: str, sensitivity: float, sync_mode: str):
             bpm = 60.0 / float(np.median(np.diff(sync_times)))
         else:
             bpm = 0.0
+    else:
+        raise ValueError(f"Unknown sync_mode: {sync_mode!r}. Expected one of: beat, drums, melody, energy")
 
     return sync_times, duration, bpm
 
@@ -336,7 +338,9 @@ def assemble_video(
     cancel_flag=None,
 ) -> dict:
     """
-    Full pipeline: face-crop all images -> detect beats -> build clips -> export.
+    Full pipeline: face-crop all images -> detect sync points -> build clips -> export.
+
+    sync_mode controls audio analysis: "beat", "drums", "melody", or "energy".
 
     cancel_flag is a list with one bool element: [False]. Set [True] externally to abort.
     progress_callback(pct: int, msg: str) is called at key steps.

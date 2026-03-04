@@ -6,9 +6,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 def _make_audio(duration_s=3.0, sr=22050):
     """Generate a short sine wave and save to a temp wav file."""
-    import tempfile, wave, struct
+    import tempfile, wave
     samples = (np.sin(2 * np.pi * 440 * np.arange(int(duration_s * sr)) / sr) * 32767).astype(np.int16)
-    path = tempfile.mktemp(suffix=".wav")
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        path = tmp.name
     with wave.open(path, "w") as wf:
         wf.setnchannels(1)
         wf.setsampwidth(2)
