@@ -82,6 +82,66 @@ def detect_beats(audio_path: str, sensitivity: float):
     return beat_times, duration, bpm
 
 
+def detect_sync_points(audio_path: str, sensitivity: float, sync_mode: str):
+    """
+    Loads audio and returns cut-point times based on sync_mode.
+
+    sync_mode values:
+      "beat"   — rhythmic drum beat (librosa beat_track on full audio)
+      "drums"  — percussive component beat (HPSS → beat_track on percussive)
+      "melody" — harmonic onset detection (HPSS → onset_detect on harmonic)
+      "energy" — RMS energy peaks (find_peaks on rms envelope)
+
+    sensitivity: 0.3 → sparse, 2.0 → dense.
+    step = max(1, round(1/sensitivity)) applied to all modes.
+
+    Returns (sync_times_list, duration_seconds, bpm).
+    """
+    from scipy.signal import find_peaks
+
+    y, sr = librosa.load(audio_path, sr=None, mono=True)
+    duration = librosa.get_duration(y=y, sr=sr)
+    step = max(1, round(1.0 / sensitivity))
+
+    if sync_mode == "beat":
+        tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr, units="frames")
+        sync_times = librosa.frames_to_time(beat_frames, sr=sr).tolist()
+        sync_times = sync_times[::step]
+        bpm = float(tempo) if np.isscalar(tempo) else float(tempo[0])
+
+    elif sync_mode == "drums":
+        _, y_perc = librosa.effects.hpss(y)
+        tempo, beat_frames = librosa.beat.beat_track(y=y_perc, sr=sr, units="frames")
+        sync_times = librosa.frames_to_time(beat_frames, sr=sr).tolist()
+        sync_times = sync_times[::step]
+        bpm = float(tempo) if np.isscalar(tempo) else float(tempo[0])
+
+    elif sync_mode == "melody":
+        y_harm, _ = librosa.effects.hpss(y)
+        onset_frames = librosa.onset.onset_detect(y=y_harm, sr=sr)
+        sync_times = librosa.frames_to_time(onset_frames, sr=sr).tolist()
+        sync_times = sync_times[::step]
+        # Estimate BPM from median inter-onset interval
+        if len(sync_times) >= 2:
+            bpm = 60.0 / float(np.median(np.diff(sync_times)))
+        else:
+            bpm = 0.0
+
+    else:  # "energy"
+        hop_length = 512
+        rms = librosa.feature.rms(y=y, hop_length=hop_length)[0]
+        distance = max(1, round(10 / sensitivity))
+        peaks, _ = find_peaks(rms, distance=distance)
+        sync_times = librosa.frames_to_time(peaks, sr=sr, hop_length=hop_length).tolist()
+        sync_times = sync_times[::step]
+        if len(sync_times) >= 2:
+            bpm = 60.0 / float(np.median(np.diff(sync_times)))
+        else:
+            bpm = 0.0
+
+    return sync_times, duration, bpm
+
+
 def _apply_flash(frame: np.ndarray, t: float, fps: int) -> np.ndarray:
     """White flash overlay decaying by 0.72 per frame. frame is BGR."""
     alpha = 0.9 * (0.72 ** (t * fps))
@@ -270,6 +330,7 @@ def assemble_video(
     transition: str,
     zoom: float,
     max_duration: float = 0,
+    sync_mode: str = "beat",
     polaroid_entry: str = "drop",
     progress_callback=None,
     cancel_flag=None,
@@ -307,7 +368,7 @@ def assemble_video(
     _progress(30, "Detecting beats...")
 
     # --- 2. Beat detection ---
-    beat_times, duration, bpm = detect_beats(audio_path, sensitivity)
+    beat_times, duration, bpm = detect_sync_points(audio_path, sensitivity, sync_mode)
 
     # Ensure we have at least 2 beat timestamps (cycle if needed)
     if len(beat_times) < 2:
@@ -319,7 +380,7 @@ def assemble_video(
         if len(beat_times) < 2:
             beat_times = [0, max_duration]
 
-    _progress(35, f"Detected {len(beat_times)} beats at {bpm:.0f} BPM")
+    _progress(35, f"Detected {len(beat_times)} sync points ({sync_mode} mode) at {bpm:.0f} BPM")
 
     # --- 3. Build clips (photos loop to fill all beats) ---
     total_clips = len(beat_times) - 1
