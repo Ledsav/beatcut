@@ -27,8 +27,6 @@ const rangeSensitivity = document.getElementById('range-sensitivity');
 const valSensitivity   = document.getElementById('val-sensitivity');
 const rangeZoom        = document.getElementById('range-zoom');
 const valZoom          = document.getElementById('val-zoom');
-const rangeDuration        = document.getElementById('range-duration');
-const valDuration          = document.getElementById('val-duration');
 const selTransition        = document.getElementById('sel-transition');
 const polaroidEntryItem    = document.getElementById('polaroid-entry-item');
 const selPolaroidEntry     = document.getElementById('sel-polaroid-entry');
@@ -61,6 +59,7 @@ inputPhotos.addEventListener('change', () => {
 inputMusic.addEventListener('change', () => {
   const f = inputMusic.files[0];
   musicStatus.textContent = f ? f.name : 'No file selected';
+  if (f) loadWaveform(f);
   updateProcessButton();
 });
 
@@ -106,10 +105,6 @@ rangeSensitivity.addEventListener('input', () => {
 rangeZoom.addEventListener('input', () => {
   valZoom.textContent = parseFloat(rangeZoom.value).toFixed(2);
 });
-rangeDuration.addEventListener('input', () => {
-  const v = parseInt(rangeDuration.value);
-  valDuration.textContent = v >= 600 ? 'Full song' : `${v}s`;
-});
 
 /* ── Process ─────────────────────────────────────────── */
 btnProcess.addEventListener('click', async () => {
@@ -119,13 +114,20 @@ btnProcess.addEventListener('click', async () => {
   fd.append('resolution',     document.getElementById('sel-resolution').value);
   fd.append('transition',     selTransition.value);
   fd.append('polaroid_entry', selPolaroidEntry.value);
-  fd.append('sync_mode', selSyncMode.value);
+  fd.append('sync_mode',   selSyncMode.value);
   fd.append('sensitivity', rangeSensitivity.value);
-  fd.append('zoom',         rangeZoom.value);
-  fd.append('fps',          '24');
-  // 600 = "full song" sentinel — server will just use full beat list
-  const durVal = parseInt(rangeDuration.value);
-  fd.append('max_duration', durVal >= 600 ? '0' : String(durVal));
+  fd.append('zoom',        rangeZoom.value);
+  fd.append('fps',         '24');
+  // Section selector: 0/0 = full song sentinel
+  if (songDuration > 0) {
+    const sT = reelStartPct < 0.005 ? 0 : reelStartPct * songDuration;
+    const eT = reelEndPct   > 0.995 ? 0 : reelEndPct   * songDuration;
+    fd.append('start_time', sT.toFixed(2));
+    fd.append('end_time',   eT.toFixed(2));
+  } else {
+    fd.append('start_time', '0');
+    fd.append('end_time',   '0');
+  }
 
   showStage(stageProcessing);
   logBox.innerHTML = '';
@@ -221,6 +223,188 @@ function showError(msg) {
 
 btnRetry.addEventListener('click', resetToUpload);
 
+/* ── Reel section selector ───────────────────────────── */
+let songDuration  = 0;   // seconds decoded from audio file
+let reelStartPct  = 0;   // 0.0 – 1.0
+let reelEndPct    = 1;
+let waveformPeaks = null; // Float32Array of normalised peak amplitudes
+
+const reelWrap      = document.getElementById('reel-wrap');
+const waveformCanvas= document.getElementById('waveform-canvas');
+const reelSelection = document.getElementById('reel-selection');
+const handleStart   = document.getElementById('handle-start');
+const handleEnd     = document.getElementById('handle-end');
+const reelTimeStart = document.getElementById('reel-time-start');
+const reelTimeEnd   = document.getElementById('reel-time-end');
+const reelHint      = document.getElementById('reel-hint');
+const valSection    = document.getElementById('val-section');
+
+// Decorative placeholder bars (shown before audio loads)
+const PLACEHOLDER_PEAKS = Array.from({ length: 120 }, (_, i) => {
+  const t = i / 120;
+  return 0.18 + 0.55 * Math.abs(Math.sin(t * 18.4 + 1.1) * Math.cos(t * 7.3 + 0.5));
+});
+
+function fmtTime(secs) {
+  const m = Math.floor(secs / 60);
+  const s = Math.floor(secs % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function drawWaveformCanvas() {
+  if (!waveformCanvas) return;
+  const dpr  = window.devicePixelRatio || 1;
+  const rect = waveformCanvas.getBoundingClientRect();
+  if (!rect.width) return;
+
+  const W = rect.width;
+  const H = rect.height;
+  waveformCanvas.width  = Math.round(W * dpr);
+  waveformCanvas.height = Math.round(H * dpr);
+
+  const ctx  = waveformCanvas.getContext('2d');
+  const peaks = waveformPeaks || PLACEHOLDER_PEAKS;
+  const N    = peaks.length;
+  const gap  = 1.5;
+  const barW = Math.max(1, (W * dpr - gap * (N - 1)) / N);
+
+  for (let i = 0; i < N; i++) {
+    const iPct   = i / N;
+    const inSel  = waveformPeaks && iPct >= reelStartPct && iPct < reelEndPct;
+    const peak   = peaks[i];
+    const barH   = Math.max(2, peak * H * dpr * 0.82);
+    const x      = i * (barW + gap);
+    const y      = (H * dpr - barH) / 2;
+
+    if (waveformPeaks) {
+      ctx.fillStyle = inSel
+        ? `rgba(200,255,0,${0.45 + peak * 0.5})`
+        : `rgba(107,107,128,${0.12 + peak * 0.22})`;
+    } else {
+      ctx.fillStyle = `rgba(107,107,128,${0.07 + peak * 0.1})`;
+    }
+    ctx.fillRect(x, y, barW, barH);
+  }
+}
+
+function updateReelDisplay() {
+  reelSelection.style.left  = (reelStartPct * 100) + '%';
+  reelSelection.style.width = ((reelEndPct - reelStartPct) * 100) + '%';
+
+  if (songDuration > 0) {
+    const startSec = reelStartPct * songDuration;
+    const endSec   = reelEndPct   * songDuration;
+    const durSec   = endSec - startSec;
+    const fullSong = reelStartPct < 0.005 && reelEndPct > 0.995;
+
+    reelTimeStart.innerHTML = `<span class="t">${fmtTime(startSec)}</span>`;
+    reelTimeEnd.innerHTML   =
+      `<span class="t">${fmtTime(endSec)}</span>` +
+      `<span style="color:var(--muted);margin-left:6px">· ${fmtTime(durSec)}</span>`;
+    valSection.textContent  = fullSong
+      ? 'Full song'
+      : `${fmtTime(startSec)} → ${fmtTime(endSec)}`;
+  }
+
+  drawWaveformCanvas();
+}
+
+async function loadWaveform(file) {
+  reelHint.textContent = 'Analysing audio…';
+  try {
+    const buf      = await file.arrayBuffer();
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const decoded  = await audioCtx.decodeAudioData(buf);
+    songDuration   = decoded.duration;
+
+    const ch        = decoded.getChannelData(0);
+    const N         = 120;
+    const blockSize = Math.floor(ch.length / N);
+    const raw       = new Float32Array(N);
+    let   maxP      = 0;
+    for (let i = 0; i < N; i++) {
+      let m = 0, off = i * blockSize;
+      for (let j = 0; j < blockSize; j++) { const v = Math.abs(ch[off + j]); if (v > m) m = v; }
+      raw[i] = m;
+      if (m > maxP) maxP = m;
+    }
+    waveformPeaks = Array.from(raw).map(p => maxP > 0 ? p / maxP : 0.5);
+
+    reelWrap.classList.remove('reel-disabled');
+    reelStartPct = 0;
+    reelEndPct   = 1;
+    updateReelDisplay();
+
+    reelTimeStart.innerHTML = `<span class="t">0:00</span>`;
+    reelTimeEnd.innerHTML   =
+      `<span class="t">${fmtTime(songDuration)}</span>` +
+      `<span style="color:var(--muted);margin-left:6px">· ${fmtTime(songDuration)}</span>`;
+    valSection.textContent  = 'Full song';
+    reelHint.textContent    = `${fmtTime(songDuration)} total · drag handles to trim`;
+
+    await audioCtx.close();
+  } catch (err) {
+    console.warn('Waveform decode failed:', err);
+    // Fallback: enable reel without real waveform
+    songDuration  = 0;
+    waveformPeaks = Array.from(PLACEHOLDER_PEAKS);
+    reelWrap.classList.remove('reel-disabled');
+    reelHint.textContent = 'Drag handles to trim';
+    drawWaveformCanvas();
+  }
+}
+
+function setupHandleDrag(handle, isStart) {
+  let active = false;
+
+  function onStart(e) { active = true; handle.classList.add('dragging'); e.preventDefault(); }
+  function onStop()   { active = false; handle.classList.remove('dragging'); }
+  function onMove(clientX) {
+    if (!active) return;
+    const rect = reelWrap.getBoundingClientRect();
+    let pct = (clientX - rect.left) / rect.width;
+    pct = Math.max(0, Math.min(1, pct));
+    if (isStart) {
+      reelStartPct = Math.min(pct, reelEndPct - 0.02);
+    } else {
+      reelEndPct   = Math.max(pct, reelStartPct + 0.02);
+    }
+    updateReelDisplay();
+  }
+
+  handle.addEventListener('mousedown', onStart);
+  document.addEventListener('mouseup',   onStop);
+  document.addEventListener('mousemove', e => onMove(e.clientX));
+
+  handle.addEventListener('touchstart', onStart, { passive: false });
+  document.addEventListener('touchend',  onStop);
+  document.addEventListener('touchmove', e => { if (active) { e.preventDefault(); onMove(e.touches[0].clientX); } }, { passive: false });
+}
+
+setupHandleDrag(handleStart, true);
+setupHandleDrag(handleEnd,   false);
+
+// Redraw canvas on window resize
+window.addEventListener('resize', drawWaveformCanvas);
+
+// Draw placeholder immediately
+drawWaveformCanvas();
+
+function resetReel() {
+  songDuration  = 0;
+  reelStartPct  = 0;
+  reelEndPct    = 1;
+  waveformPeaks = null;
+  reelWrap.classList.add('reel-disabled');
+  reelSelection.style.left  = '0%';
+  reelSelection.style.width = '100%';
+  reelTimeStart.innerHTML   = '—';
+  reelTimeEnd.innerHTML     = '—';
+  valSection.textContent    = 'Full song';
+  reelHint.textContent      = 'Load a song to select a section';
+  drawWaveformCanvas();
+}
+
 /* ── Reset ───────────────────────────────────────────── */
 function resetToUpload() {
   currentJobId = null;
@@ -236,8 +420,7 @@ function resetToUpload() {
   musicStatus.textContent  = 'No file selected';
   btnProcess.disabled      = true;
 
-  rangeDuration.value         = '600';
-  valDuration.textContent     = 'Full song';
+  resetReel();
   selTransition.value         = 'flash';
   selPolaroidEntry.value      = 'drop';
   selSyncMode.value           = 'beat';

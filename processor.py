@@ -7,17 +7,17 @@ from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
 
 warnings.filterwarnings("ignore")
 
-# Cascade paths (shipped with opencv-python)
-_FRONTAL = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-_PROFILE  = cv2.data.haarcascades + "haarcascade_profileface.xml"
+# Cascade classifiers loaded once at import time (not per-image)
+_CASCADE_FRONTAL = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+_CASCADE_PROFILE  = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_profileface.xml")
 
 
 def detect_and_crop(image_path: str, output_w: int, output_h: int, zoom: float):
     """
     Reads image_path, detects the largest face, centers the crop around
     (cx, cy = face_x + w/2, face_y + h*0.35), crops to output_w x output_h
-    at the given zoom level (larger zoom = wider context), resizes to output
-    dimensions with LANCZOS interpolation.
+    at the given zoom level (larger zoom = tighter crop on the face), resizes to
+    output dimensions with LANCZOS interpolation.
 
     Returns (bgr_array, face_found).
     """
@@ -31,8 +31,8 @@ def detect_and_crop(image_path: str, output_w: int, output_h: int, zoom: float):
     face_found = False
     cx, cy = iw // 2, ih // 2  # fallback: image center
 
-    for cascade_path in [_FRONTAL, _PROFILE]:
-        cascade = cv2.CascadeClassifier(cascade_path)
+    # Try frontal then left-profile
+    for cascade in [_CASCADE_FRONTAL, _CASCADE_PROFILE]:
         faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
         if len(faces):
             # Pick largest by area
@@ -41,6 +41,16 @@ def detect_and_crop(image_path: str, output_w: int, output_h: int, zoom: float):
             cy = int(y + h * 0.35)  # include forehead
             face_found = True
             break
+
+    # Try right-facing profile (mirror the image, then map x back)
+    if not face_found:
+        gray_flip = cv2.flip(gray, 1)
+        faces = _CASCADE_PROFILE.detectMultiScale(gray_flip, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
+        if len(faces):
+            x, y, w, h = max(faces, key=lambda f: f[2] * f[3])
+            cx = iw - (x + w // 2)
+            cy = int(y + h * 0.35)
+            face_found = True
 
     # Compute crop window: output aspect ratio divided by zoom
     aspect = output_w / output_h
@@ -331,7 +341,8 @@ def assemble_video(
     sensitivity: float,
     transition: str,
     zoom: float,
-    max_duration: float = 0,
+    start_time: float = 0,
+    end_time: float = 0,
     sync_mode: str = "beat",
     polaroid_entry: str = "drop",
     progress_callback=None,
@@ -362,27 +373,31 @@ def assemble_video(
     for i, path in enumerate(image_paths):
         if _cancelled():
             raise InterruptedError("Job cancelled")
-        bgr, _ = detect_and_crop(path, output_w, output_h, zoom)
+        bgr, face_found = detect_and_crop(path, output_w, output_h, zoom)
         # Convert BGR -> RGB for moviepy
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
         frames.append(rgb)
         pct = 2 + int(28 * (i + 1) / n)
-        _progress(pct, f"Processing image {i + 1}/{n}")
+        label = f"Processing image {i + 1}/{n}" if face_found else f"Processing image {i + 1}/{n} (no face detected, using center)"
+        _progress(pct, label)
 
     _progress(30, "Detecting beats...")
 
     # --- 2. Beat detection ---
     beat_times, duration, bpm = detect_sync_points(audio_path, sensitivity, sync_mode)
 
-    # Ensure we have at least 2 beat timestamps (cycle if needed)
-    if len(beat_times) < 2:
-        beat_times = [i * (duration / max(len(frames), 1)) for i in range(len(frames) + 1)]
+    # Resolve selected time window (end_time=0 means full song)
+    t_start = max(0.0, start_time)
+    t_end   = end_time if end_time > 0 else duration
 
-    # Trim beat list to user-requested max duration (0 = full song)
-    if max_duration > 0:
-        beat_times = [t for t in beat_times if t <= max_duration]
-        if len(beat_times) < 2:
-            beat_times = [0, max_duration]
+    # Trim beat list to selected window, then normalise to 0-based
+    beat_times = [t for t in beat_times if t_start <= t <= t_end]
+    beat_times = [t - t_start for t in beat_times]
+
+    # Ensure we have at least 2 beat timestamps
+    if len(beat_times) < 2:
+        span = t_end - t_start
+        beat_times = [i * (span / max(len(frames), 1)) for i in range(len(frames) + 1)]
 
     _progress(35, f"Detected {len(beat_times)} sync points ({sync_mode} mode) at {bpm:.0f} BPM")
 
@@ -456,7 +471,8 @@ def assemble_video(
 
     # --- 4. Concatenate & attach audio ---
     final = concatenate_videoclips(clips, method="compose")
-    audio = AudioFileClip(audio_path).subclip(0, min(final.duration, duration))
+    clip_span = min(final.duration, t_end - t_start)
+    audio = AudioFileClip(audio_path).subclip(t_start, t_start + clip_span)
     final = final.set_audio(audio)
 
     _progress(92, "Exporting video (this may take a while)...")

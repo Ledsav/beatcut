@@ -70,9 +70,10 @@ def upload():
     fps = int(request.form.get("fps", 24))
     sensitivity = float(request.form.get("sensitivity", 1.0))
     transition = request.form.get("transition", "flash")
-    zoom = float(request.form.get("zoom", 1.5))
-    max_duration    = float(request.form.get("max_duration", 0))
-    sync_mode       = request.form.get("sync_mode", "beat")
+    zoom       = float(request.form.get("zoom", 1.5))
+    start_time = float(request.form.get("start_time", 0))
+    end_time   = float(request.form.get("end_time", 0))
+    sync_mode  = request.form.get("sync_mode", "beat")
     if sync_mode not in {"beat", "drums", "melody", "energy"}:
         shutil.rmtree(workdir, ignore_errors=True)
         return jsonify({"error": f"Invalid sync_mode: {sync_mode!r}"}), 400
@@ -111,7 +112,8 @@ def upload():
                 sensitivity=sensitivity,
                 transition=transition,
                 zoom=zoom,
-                max_duration=max_duration,
+                start_time=start_time,
+                end_time=end_time,
                 sync_mode=sync_mode,
                 polaroid_entry=polaroid_entry,
                 progress_callback=on_progress,

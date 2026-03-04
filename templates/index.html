@@ -94,8 +94,19 @@
       </div>
 
       <div class="setting-item setting-item--wide">
-        <label for="range-duration">Video Length <span id="val-duration">Full song</span></label>
-        <input type="range" id="range-duration" min="10" max="600" step="5" value="600" />
+        <label>Song Section <span id="val-section">Full song</span></label>
+        <div class="reel-wrap reel-disabled" id="reel-wrap">
+          <canvas id="waveform-canvas" class="reel-canvas"></canvas>
+          <div class="reel-selection" id="reel-selection" style="left:0%;width:100%">
+            <div class="reel-handle reel-handle--start" id="handle-start" tabindex="0" aria-label="Section start"></div>
+            <div class="reel-handle reel-handle--end"   id="handle-end"   tabindex="0" aria-label="Section end"></div>
+          </div>
+        </div>
+        <div class="reel-times">
+          <span class="reel-time" id="reel-time-start">—</span>
+          <span class="reel-time" id="reel-time-end">—</span>
+        </div>
+        <p class="reel-hint" id="reel-hint">Load a song to select a section</p>
       </div>
     </div>
 
