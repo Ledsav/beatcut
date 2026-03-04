@@ -73,6 +73,9 @@ def upload():
     zoom = float(request.form.get("zoom", 1.5))
     max_duration    = float(request.form.get("max_duration", 0))
     sync_mode       = request.form.get("sync_mode", "beat")
+    if sync_mode not in {"beat", "drums", "melody", "energy"}:
+        shutil.rmtree(workdir, ignore_errors=True)
+        return jsonify({"error": f"Invalid sync_mode: {sync_mode!r}"}), 400
     polaroid_entry  = request.form.get("polaroid_entry", "drop")
 
     output_path = os.path.join(workdir, "output.mp4")

@@ -49,7 +49,7 @@ Code paths:
 
 Sensitivity mapping (consistent across all modes):
 - `beat`/`drums`/`melody`: `step = max(1, round(1/sensitivity))`, subsample sync_times[::step]
-- `energy`: `distance = max(1, round(hop_length / sensitivity))` — higher sensitivity → smaller minimum distance between peaks
+- `energy`: `distance = max(1, round(10 / sensitivity))` — higher sensitivity → smaller minimum distance between peaks (~0.23s at sensitivity=1.0)
 
 ### 3. Backend — `app.py`
 
