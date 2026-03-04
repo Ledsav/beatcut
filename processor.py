@@ -58,3 +58,24 @@ def detect_and_crop(image_path: str, output_w: int, output_h: int, zoom: float):
     cropped = img[y1:y2, x1:x2]
     resized = cv2.resize(cropped, (output_w, output_h), interpolation=cv2.INTER_LANCZOS4)
     return resized, face_found
+
+
+def detect_beats(audio_path: str, sensitivity: float):
+    """
+    Loads audio, runs beat tracking, subsamples by sensitivity.
+
+    sensitivity: 0.3 -> step=3 (fewer beats used), 2.0 -> step=1 (all beats).
+    Formula: step = max(1, round(1 / sensitivity))
+
+    Returns (beat_times_list, duration_seconds, bpm).
+    """
+    y, sr = librosa.load(audio_path, sr=None, mono=True)
+    duration = librosa.get_duration(y=y, sr=sr)
+    tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr, units="frames")
+    beat_times = librosa.frames_to_time(beat_frames, sr=sr).tolist()
+
+    step = max(1, round(1.0 / sensitivity))
+    beat_times = beat_times[::step]
+
+    bpm = float(tempo) if np.isscalar(tempo) else float(tempo[0])
+    return beat_times, duration, bpm
