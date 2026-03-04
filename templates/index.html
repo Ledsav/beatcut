@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BeatCut</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+  <!-- ── Stage 1: Upload & Configure ─────────────────────────── -->
+  <section id="stage-upload" class="stage active">
+    <h1 class="logo">BEATCUT</h1>
+    <p class="tagline">beat-synced · face-centered · export-ready</p>
+
+    <div class="upload-row">
+      <!-- Photos -->
+      <div class="upload-zone" id="zone-photos">
+        <label for="input-photos" class="upload-label">
+          <span class="upload-icon">🖼</span>
+          <span class="upload-title">Drop Photos</span>
+          <span class="upload-hint">click or drag</span>
+        </label>
+        <input type="file" id="input-photos" multiple accept="image/*" style="opacity:0;position:absolute;width:0;height:0;" />
+        <p class="upload-status" id="photos-status">No photos selected</p>
+      </div>
+
+      <!-- Music -->
+      <div class="upload-zone" id="zone-music">
+        <label for="input-music" class="upload-label">
+          <span class="upload-icon">🎵</span>
+          <span class="upload-title">Drop Music</span>
+          <span class="upload-hint">click or drag</span>
+        </label>
+        <input type="file" id="input-music" accept="audio/*" style="opacity:0;position:absolute;width:0;height:0;" />
+        <p class="upload-status" id="music-status">No file selected</p>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div class="settings-grid">
+      <div class="setting-item">
+        <label for="sel-transition">Transition</label>
+        <select id="sel-transition">
+          <option value="flash">Flash</option>
+          <option value="cut">Hard Cut</option>
+          <option value="fade">Fade</option>
+          <option value="zoom_in">Zoom In</option>
+        </select>
+      </div>
+
+      <div class="setting-item">
+        <label for="range-sensitivity">Beat Sensitivity <span id="val-sensitivity">1.0</span></label>
+        <input type="range" id="range-sensitivity" min="0.3" max="2" step="0.1" value="1.0" />
+      </div>
+
+      <div class="setting-item">
+        <label for="sel-resolution">Resolution</label>
+        <select id="sel-resolution">
+          <option value="1080x1080">1080×1080 (Square)</option>
+          <option value="1920x1080">1920×1080 (Wide)</option>
+          <option value="1080x1920">1080×1920 (Vertical)</option>
+          <option value="720x720">720×720 (Small)</option>
+        </select>
+      </div>
+
+      <div class="setting-item">
+        <label for="range-zoom">Face Zoom <span id="val-zoom">1.50</span></label>
+        <input type="range" id="range-zoom" min="1.0" max="2.0" step="0.05" value="1.5" />
+      </div>
+    </div>
+
+    <button id="btn-process" class="btn-primary" disabled>Process Video</button>
+  </section>
+
+  <!-- ── Stage 2: Processing ───────────────────────────────── -->
+  <section id="stage-processing" class="stage">
+    <h2>Processing...</h2>
+    <div class="progress-track">
+      <div class="progress-bar" id="progress-bar" style="width:0%"></div>
+    </div>
+    <p class="progress-label" id="progress-label">Starting...</p>
+    <div class="log-box" id="log-box"></div>
+    <button id="btn-cancel" class="btn-danger">Cancel</button>
+  </section>
+
+  <!-- ── Stage 3: Done ─────────────────────────────────────── -->
+  <section id="stage-done" class="stage">
+    <h2>Done!</h2>
+    <div class="stats-grid" id="stats-grid">
+      <div class="stat-card"><span class="stat-val" id="stat-photos">—</span><span class="stat-lbl">Photos Used</span></div>
+      <div class="stat-card"><span class="stat-val" id="stat-beats">—</span><span class="stat-lbl">Beats</span></div>
+      <div class="stat-card"><span class="stat-val" id="stat-bpm">—</span><span class="stat-lbl">BPM</span></div>
+      <div class="stat-card"><span class="stat-val" id="stat-dur">—</span><span class="stat-lbl">Duration</span></div>
+    </div>
+    <a id="btn-download" class="btn-primary" href="#">Download MP4</a>
+    <button id="btn-again" class="btn-secondary">Make Another</button>
+  </section>
+
+  <!-- ── Stage 4: Error ────────────────────────────────────── -->
+  <section id="stage-error" class="stage">
+    <h2>Something went wrong</h2>
+    <p class="error-msg" id="error-msg"></p>
+    <button id="btn-retry" class="btn-danger">Try Again</button>
+  </section>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
