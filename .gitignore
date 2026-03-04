@@ -7,3 +7,6 @@ uploads/
 .env
 
 .claude
+.github
+
+.pytest_cache/
