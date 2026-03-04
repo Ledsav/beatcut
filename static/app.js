@@ -27,8 +27,11 @@ const rangeSensitivity = document.getElementById('range-sensitivity');
 const valSensitivity   = document.getElementById('val-sensitivity');
 const rangeZoom        = document.getElementById('range-zoom');
 const valZoom          = document.getElementById('val-zoom');
-const rangeDuration    = document.getElementById('range-duration');
-const valDuration      = document.getElementById('val-duration');
+const rangeDuration        = document.getElementById('range-duration');
+const valDuration          = document.getElementById('val-duration');
+const selTransition        = document.getElementById('sel-transition');
+const polaroidEntryItem    = document.getElementById('polaroid-entry-item');
+const selPolaroidEntry     = document.getElementById('sel-polaroid-entry');
 
 const statPhotos = document.getElementById('stat-photos');
 const statBeats  = document.getElementById('stat-beats');
@@ -89,6 +92,12 @@ function setupDrop(zone, input) {
 setupDrop(document.getElementById('zone-photos'), inputPhotos);
 setupDrop(document.getElementById('zone-music'),  inputMusic);
 
+/* ── Polaroid entry visibility ──────────────────────── */
+function updatePolaroidVisibility() {
+  polaroidEntryItem.style.display = selTransition.value === 'polaroid' ? '' : 'none';
+}
+selTransition.addEventListener('change', updatePolaroidVisibility);
+
 /* ── Live range value display ───────────────────────── */
 rangeSensitivity.addEventListener('input', () => {
   valSensitivity.textContent = parseFloat(rangeSensitivity.value).toFixed(1);
@@ -106,8 +115,9 @@ btnProcess.addEventListener('click', async () => {
   const fd = new FormData();
   Array.from(inputPhotos.files).forEach(f => fd.append('images', f));
   fd.append('music',       inputMusic.files[0]);
-  fd.append('resolution',  document.getElementById('sel-resolution').value);
-  fd.append('transition',  document.getElementById('sel-transition').value);
+  fd.append('resolution',     document.getElementById('sel-resolution').value);
+  fd.append('transition',     selTransition.value);
+  fd.append('polaroid_entry', selPolaroidEntry.value);
   fd.append('sensitivity', rangeSensitivity.value);
   fd.append('zoom',         rangeZoom.value);
   fd.append('fps',          '24');
@@ -224,8 +234,11 @@ function resetToUpload() {
   musicStatus.textContent  = 'No file selected';
   btnProcess.disabled      = true;
 
-  rangeDuration.value       = '600';
-  valDuration.textContent   = 'Full song';
+  rangeDuration.value         = '600';
+  valDuration.textContent     = 'Full song';
+  selTransition.value         = 'flash';
+  selPolaroidEntry.value      = 'drop';
+  updatePolaroidVisibility();
 
   progressBar.style.width     = '0%';
   progressLabel.textContent   = 'Starting...';

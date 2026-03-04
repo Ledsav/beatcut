@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import librosa
 import warnings
-from PIL import Image
+from PIL import Image as PILImage
 from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
 
 warnings.filterwarnings("ignore")
@@ -105,6 +105,140 @@ def _apply_zoom_in(frame: np.ndarray, t: float, duration: float) -> np.ndarray:
     return cv2.warpAffine(frame, M, (w, h), flags=cv2.INTER_LINEAR)
 
 
+def _make_polaroid_pil(rgb_frame: np.ndarray, pol_size: int,
+                       b_side: int, b_top: int, b_bottom: int) -> PILImage.Image:
+    """Wrap an RGB numpy frame in a white polaroid border. Returns RGBA PIL Image."""
+    pol_w = pol_size + 2 * b_side
+    pol_h = pol_size + b_top + b_bottom
+    # Slightly warm off-white so it reads as paper
+    pol = PILImage.new("RGBA", (pol_w, pol_h), (252, 250, 244, 255))
+    photo = PILImage.fromarray(rgb_frame).resize((pol_size, pol_size), PILImage.LANCZOS)
+    pol.paste(photo.convert("RGBA"), (b_side, b_top))
+    return pol
+
+
+def _build_polaroid_clips(frames, beat_times, output_w, output_h, fps,
+                           polaroid_entry, progress_callback, cancel_flag):
+    """
+    Build moviepy clips for the Polaroid Stack effect.
+
+    Each beat adds one new polaroid on top of an accumulating pile on a black canvas.
+    Landing animation is controlled by polaroid_entry: drop | flash | fade | cut.
+    The pile resets every len(frames) photos so it never gets too crowded.
+    """
+    total = len(beat_times) - 1
+    if total == 0:
+        return []
+
+    # Polaroid sizing — photo occupies ~52 % of the shorter edge
+    pol_size = int(min(output_w, output_h) * 0.52)
+    b_side   = max(int(pol_size * 0.07), 8)
+    b_top    = max(int(pol_size * 0.07), 8)
+    b_bottom = max(int(pol_size * 0.26), 24)
+
+    # Deterministic random angles / offsets (seeded so same photos → same pile every run)
+    rng = np.random.default_rng(seed=7)
+    angles    = rng.uniform(-14, 14,            total + 1).tolist()
+    offsets_x = rng.integers(-output_w // 14,  output_w // 14,  total + 1).tolist()
+    offsets_y = rng.integers(-output_h // 14,  output_h // 14,  total + 1).tolist()
+
+    # Pre-render every rotated polaroid as RGBA PIL image (done once, reused per frame)
+    pol_images = []
+    for i in range(total + 1):
+        rgb = frames[i % len(frames)]
+        pil = _make_polaroid_pil(rgb, pol_size, b_side, b_top, b_bottom)
+        rotated = pil.rotate(-angles[i], expand=True, resample=PILImage.BICUBIC)
+        pol_images.append(rotated)
+
+    def _paste(canvas_pil, pol, px, py, alpha_scale=1.0):
+        """Paste a polaroid PIL image onto canvas_pil with optional alpha scaling."""
+        mask = pol.getchannel("A")
+        if alpha_scale < 1.0:
+            mask = PILImage.fromarray(
+                (np.array(mask) * alpha_scale).clip(0, 255).astype(np.uint8)
+            )
+        canvas_pil.paste(pol.convert("RGB"), (px, py), mask)
+
+    clips = []
+    # pile_canvas is a PIL Image that accumulates as we go
+    pile_canvas = PILImage.new("RGB", (output_w, output_h), (0, 0, 0))
+
+    for i in range(total):
+        if cancel_flag is not None and cancel_flag[0]:
+            raise InterruptedError("Job cancelled")
+
+        # Reset pile at the start of each full photo cycle
+        if i > 0 and i % len(frames) == 0:
+            pile_canvas = PILImage.new("RGB", (output_w, output_h), (0, 0, 0))
+
+        new_pol = pol_images[i]
+        rx, ry  = new_pol.size
+        px = output_w // 2 - rx // 2 + int(offsets_x[i])
+        py = output_h // 2 - ry // 2 + int(offsets_y[i])
+
+        clip_dur = max(beat_times[i + 1] - beat_times[i], 1.0 / fps)
+
+        # "full" = pile_canvas + new polaroid already composited (used by cut & flash)
+        full_canvas = pile_canvas.copy()
+        _paste(full_canvas, new_pol, px, py)
+        full_rgb = np.array(full_canvas)
+
+        if polaroid_entry == "cut":
+            clip = ImageClip(full_rgb, duration=clip_dur)
+
+        elif polaroid_entry == "flash":
+            _full = full_rgb.copy()
+            _fps  = fps
+
+            def _fl_flash(gf, t, _f=_full, _fps=_fps):
+                bgr = cv2.cvtColor(_f, cv2.COLOR_RGB2BGR)
+                return cv2.cvtColor(_apply_flash(bgr, t, _fps), cv2.COLOR_BGR2RGB)
+
+            clip = ImageClip(full_rgb, duration=clip_dur).fl(_fl_flash)
+
+        elif polaroid_entry == "fade":
+            _base = pile_canvas.copy()
+            _pol  = new_pol
+            _px, _py, _dur = px, py, clip_dur
+
+            def _fl_fade(gf, t, _b=_base, _p=_pol, _px=_px, _py=_py, _d=_dur):
+                alpha = min(t / max(_d, 1e-6), 1.0)
+                c = _b.copy()
+                _paste(c, _p, _px, _py, alpha_scale=alpha)
+                return np.array(c)
+
+            clip = ImageClip(full_rgb, duration=clip_dur).fl(_fl_fade)
+
+        else:  # "drop" (default)
+            DROP_PX = int(min(output_w, output_h) * 0.18)
+            _base = pile_canvas.copy()
+            _pol  = new_pol
+            _px, _py, _dur = px, py, clip_dur
+
+            def _fl_drop(gf, t, _b=_base, _p=_pol, _px=_px, _py=_py,
+                         _d=_dur, _dp=DROP_PX):
+                p = min(t / max(_d, 1e-6), 1.0)
+                ease = 1.0 - (1.0 - p) ** 2   # ease-out quad
+                dy = int(_dp * (1.0 - ease))
+                c = _b.copy()
+                _paste(c, _p, _px, _py - dy)
+                return np.array(c)
+
+            clip = ImageClip(full_rgb, duration=clip_dur).fl(_fl_drop)
+
+        clips.append(clip)
+
+        # Permanently commit this polaroid to the pile canvas for next iteration
+        _paste(pile_canvas, new_pol, px, py)
+
+        if i % max(1, total // 10) == 0:
+            pct = 35 + int(55 * (i + 1) / total)
+            if progress_callback:
+                progress_callback(pct, f"Building polaroid clip {i + 1}/{total}")
+
+    return clips
+
+
 def assemble_video(
     image_paths: list,
     audio_path: str,
@@ -116,6 +250,7 @@ def assemble_video(
     transition: str,
     zoom: float,
     max_duration: float = 0,
+    polaroid_entry: str = "drop",
     progress_callback=None,
     cancel_flag=None,
 ) -> dict:
@@ -167,63 +302,70 @@ def assemble_video(
     _progress(35, f"Detected {len(beat_times)} beats at {bpm:.0f} BPM")
 
     # --- 3. Build clips (photos loop to fill all beats) ---
-    clips = []
     total_clips = len(beat_times) - 1
-    prev_rgb = None
 
-    for i in range(total_clips):
-        if _cancelled():
-            raise InterruptedError("Job cancelled")
+    if transition == "polaroid":
+        clips = _build_polaroid_clips(
+            frames, beat_times, output_w, output_h, fps,
+            polaroid_entry, progress_callback, cancel_flag,
+        )
+    else:
+        clips = []
+        prev_rgb = None
 
-        rgb = frames[i % len(frames)]
-        clip_duration = beat_times[i + 1] - beat_times[i]
-        clip_duration = max(clip_duration, 1.0 / fps)
+        for i in range(total_clips):
+            if _cancelled():
+                raise InterruptedError("Job cancelled")
 
-        if transition == "flash" and prev_rgb is not None:
-            curr = rgb.copy()
-            _fps = fps
+            rgb = frames[i % len(frames)]
+            clip_duration = beat_times[i + 1] - beat_times[i]
+            clip_duration = max(clip_duration, 1.0 / fps)
 
-            def _fl_flash(get_frame, t, _rgb=curr, _fps=_fps):
-                f = get_frame(t).astype(np.uint8)
-                bgr = cv2.cvtColor(f, cv2.COLOR_RGB2BGR)
-                bgr = _apply_flash(bgr, t, _fps)
-                return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+            if transition == "flash" and prev_rgb is not None:
+                curr = rgb.copy()
+                _fps = fps
 
-            clip = ImageClip(rgb, duration=clip_duration).fl(_fl_flash)
+                def _fl_flash(get_frame, t, _rgb=curr, _fps=_fps):
+                    f = get_frame(t).astype(np.uint8)
+                    bgr = cv2.cvtColor(f, cv2.COLOR_RGB2BGR)
+                    bgr = _apply_flash(bgr, t, _fps)
+                    return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
 
-        elif transition == "fade" and prev_rgb is not None:
-            prev = prev_rgb.copy()
-            curr = rgb.copy()
-            _dur = clip_duration
+                clip = ImageClip(rgb, duration=clip_duration).fl(_fl_flash)
 
-            def _fl_fade(get_frame, t, _prev=prev, _curr=curr, _dur=_dur):
-                bgr_prev = cv2.cvtColor(_prev.astype(np.uint8), cv2.COLOR_RGB2BGR)
-                bgr_curr = cv2.cvtColor(_curr.astype(np.uint8), cv2.COLOR_RGB2BGR)
-                blended = _apply_fade(bgr_prev, bgr_curr, t, _dur)
-                return cv2.cvtColor(blended, cv2.COLOR_BGR2RGB)
+            elif transition == "fade" and prev_rgb is not None:
+                prev = prev_rgb.copy()
+                curr = rgb.copy()
+                _dur = clip_duration
 
-            clip = ImageClip(rgb, duration=clip_duration).fl(_fl_fade)
+                def _fl_fade(get_frame, t, _prev=prev, _curr=curr, _dur=_dur):
+                    bgr_prev = cv2.cvtColor(_prev.astype(np.uint8), cv2.COLOR_RGB2BGR)
+                    bgr_curr = cv2.cvtColor(_curr.astype(np.uint8), cv2.COLOR_RGB2BGR)
+                    blended = _apply_fade(bgr_prev, bgr_curr, t, _dur)
+                    return cv2.cvtColor(blended, cv2.COLOR_BGR2RGB)
 
-        elif transition == "zoom_in":
-            curr = rgb.copy()
-            _dur = clip_duration
+                clip = ImageClip(rgb, duration=clip_duration).fl(_fl_fade)
 
-            def _fl_zoom(get_frame, t, _curr=curr, _dur=_dur):
-                bgr = cv2.cvtColor(_curr.astype(np.uint8), cv2.COLOR_RGB2BGR)
-                bgr = _apply_zoom_in(bgr, t, _dur)
-                return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+            elif transition == "zoom_in":
+                curr = rgb.copy()
+                _dur = clip_duration
 
-            clip = ImageClip(rgb, duration=clip_duration).fl(_fl_zoom)
+                def _fl_zoom(get_frame, t, _curr=curr, _dur=_dur):
+                    bgr = cv2.cvtColor(_curr.astype(np.uint8), cv2.COLOR_RGB2BGR)
+                    bgr = _apply_zoom_in(bgr, t, _dur)
+                    return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
 
-        else:  # "cut" or first clip of flash/fade
-            clip = ImageClip(rgb, duration=clip_duration)
+                clip = ImageClip(rgb, duration=clip_duration).fl(_fl_zoom)
 
-        clips.append(clip)
-        prev_rgb = rgb
+            else:  # "cut" or first clip of flash/fade
+                clip = ImageClip(rgb, duration=clip_duration)
 
-        if i % max(1, total_clips // 10) == 0:
-            pct = 35 + int(55 * (i + 1) / total_clips)
-            _progress(pct, f"Building clip {i + 1}/{total_clips}")
+            clips.append(clip)
+            prev_rgb = rgb
+
+            if i % max(1, total_clips // 10) == 0:
+                pct = 35 + int(55 * (i + 1) / total_clips)
+                _progress(pct, f"Building clip {i + 1}/{total_clips}")
 
     _progress(90, "Concatenating clips...")
 

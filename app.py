@@ -71,7 +71,8 @@ def upload():
     sensitivity = float(request.form.get("sensitivity", 1.0))
     transition = request.form.get("transition", "flash")
     zoom = float(request.form.get("zoom", 1.5))
-    max_duration = float(request.form.get("max_duration", 0))
+    max_duration    = float(request.form.get("max_duration", 0))
+    polaroid_entry  = request.form.get("polaroid_entry", "drop")
 
     output_path = os.path.join(workdir, "output.mp4")
     cancel_flag = [False]
@@ -107,6 +108,7 @@ def upload():
                 transition=transition,
                 zoom=zoom,
                 max_duration=max_duration,
+                polaroid_entry=polaroid_entry,
                 progress_callback=on_progress,
                 cancel_flag=cancel_flag,
             )
