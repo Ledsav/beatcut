@@ -79,3 +79,26 @@ def detect_beats(audio_path: str, sensitivity: float):
 
     bpm = float(tempo) if np.isscalar(tempo) else float(tempo[0])
     return beat_times, duration, bpm
+
+
+def _apply_flash(frame: np.ndarray, t: float, fps: int) -> np.ndarray:
+    """White flash overlay decaying by 0.72 per frame. frame is BGR."""
+    alpha = 0.9 * (0.72 ** (t * fps))
+    white = np.ones_like(frame, dtype=np.uint8) * 255
+    return cv2.addWeighted(frame, 1 - alpha, white, alpha, 0)
+
+
+def _apply_fade(frame_a: np.ndarray, frame_b: np.ndarray, t: float, duration: float) -> np.ndarray:
+    """Linear cross-dissolve between two BGR frames."""
+    ratio = t / max(duration, 1e-6)
+    ratio = min(ratio, 1.0)
+    return cv2.addWeighted(frame_a, 1 - ratio, frame_b, ratio, 0)
+
+
+def _apply_zoom_in(frame: np.ndarray, t: float, duration: float) -> np.ndarray:
+    """Scale 1.3->1.0 over the clip duration using warpAffine. frame is BGR."""
+    h, w = frame.shape[:2]
+    scale = 1.3 - 0.3 * (t / max(duration, 1e-6))
+    scale = max(scale, 1.0)
+    M = cv2.getRotationMatrix2D((w / 2, h / 2), 0, scale)
+    return cv2.warpAffine(frame, M, (w, h), flags=cv2.INTER_LINEAR)
