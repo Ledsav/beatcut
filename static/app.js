@@ -27,6 +27,8 @@ const rangeSensitivity = document.getElementById('range-sensitivity');
 const valSensitivity   = document.getElementById('val-sensitivity');
 const rangeZoom        = document.getElementById('range-zoom');
 const valZoom          = document.getElementById('val-zoom');
+const rangeDuration    = document.getElementById('range-duration');
+const valDuration      = document.getElementById('val-duration');
 
 const statPhotos = document.getElementById('stat-photos');
 const statBeats  = document.getElementById('stat-beats');
@@ -94,6 +96,10 @@ rangeSensitivity.addEventListener('input', () => {
 rangeZoom.addEventListener('input', () => {
   valZoom.textContent = parseFloat(rangeZoom.value).toFixed(2);
 });
+rangeDuration.addEventListener('input', () => {
+  const v = parseInt(rangeDuration.value);
+  valDuration.textContent = v >= 600 ? 'Full song' : `${v}s`;
+});
 
 /* ── Process ─────────────────────────────────────────── */
 btnProcess.addEventListener('click', async () => {
@@ -103,8 +109,11 @@ btnProcess.addEventListener('click', async () => {
   fd.append('resolution',  document.getElementById('sel-resolution').value);
   fd.append('transition',  document.getElementById('sel-transition').value);
   fd.append('sensitivity', rangeSensitivity.value);
-  fd.append('zoom',        rangeZoom.value);
-  fd.append('fps',         '24');
+  fd.append('zoom',         rangeZoom.value);
+  fd.append('fps',          '24');
+  // 600 = "full song" sentinel — server will just use full beat list
+  const durVal = parseInt(rangeDuration.value);
+  fd.append('max_duration', durVal >= 600 ? '0' : String(durVal));
 
   showStage(stageProcessing);
   logBox.innerHTML = '';
@@ -214,6 +223,9 @@ function resetToUpload() {
   photosStatus.textContent = 'No photos selected';
   musicStatus.textContent  = 'No file selected';
   btnProcess.disabled      = true;
+
+  rangeDuration.value       = '600';
+  valDuration.textContent   = 'Full song';
 
   progressBar.style.width     = '0%';
   progressLabel.textContent   = 'Starting...';

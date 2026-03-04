@@ -109,6 +109,9 @@ body {
   gap: 16px;
   width: 100%;
 }
+.setting-item--wide {
+  grid-column: 1 / -1;
+}
 
 .setting-item {
   background: var(--surface);

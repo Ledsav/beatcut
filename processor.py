@@ -115,6 +115,7 @@ def assemble_video(
     sensitivity: float,
     transition: str,
     zoom: float,
+    max_duration: float = 0,
     progress_callback=None,
     cancel_flag=None,
 ) -> dict:
@@ -157,11 +158,17 @@ def assemble_video(
     if len(beat_times) < 2:
         beat_times = [i * (duration / max(len(frames), 1)) for i in range(len(frames) + 1)]
 
+    # Trim beat list to user-requested max duration (0 = full song)
+    if max_duration > 0:
+        beat_times = [t for t in beat_times if t <= max_duration]
+        if len(beat_times) < 2:
+            beat_times = [0, max_duration]
+
     _progress(35, f"Detected {len(beat_times)} beats at {bpm:.0f} BPM")
 
-    # --- 3. Build clips ---
+    # --- 3. Build clips (photos loop to fill all beats) ---
     clips = []
-    total_clips = min(len(frames), len(beat_times) - 1)
+    total_clips = len(beat_times) - 1
     prev_rgb = None
 
     for i in range(total_clips):
