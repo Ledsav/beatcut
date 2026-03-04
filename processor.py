@@ -3,6 +3,7 @@ import numpy as np
 import librosa
 import warnings
 from PIL import Image
+from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
 
 warnings.filterwarnings("ignore")
 
@@ -102,3 +103,143 @@ def _apply_zoom_in(frame: np.ndarray, t: float, duration: float) -> np.ndarray:
     scale = max(scale, 1.0)
     M = cv2.getRotationMatrix2D((w / 2, h / 2), 0, scale)
     return cv2.warpAffine(frame, M, (w, h), flags=cv2.INTER_LINEAR)
+
+
+def assemble_video(
+    image_paths: list,
+    audio_path: str,
+    output_path: str,
+    output_w: int,
+    output_h: int,
+    fps: int,
+    sensitivity: float,
+    transition: str,
+    zoom: float,
+    progress_callback=None,
+    cancel_flag=None,
+) -> dict:
+    """
+    Full pipeline: face-crop all images -> detect beats -> build clips -> export.
+
+    cancel_flag is a list with one bool element: [False]. Set [True] externally to abort.
+    progress_callback(pct: int, msg: str) is called at key steps.
+
+    Returns {"bpm": float, "duration": float, "beats": int, "photos_used": int}.
+    """
+    def _progress(pct, msg):
+        if progress_callback:
+            progress_callback(pct, msg)
+
+    def _cancelled():
+        return cancel_flag is not None and cancel_flag[0]
+
+    _progress(2, "Loading face detection models...")
+
+    # --- 1. Face-crop all images ---
+    frames = []
+    n = len(image_paths)
+    for i, path in enumerate(image_paths):
+        if _cancelled():
+            raise InterruptedError("Job cancelled")
+        bgr, _ = detect_and_crop(path, output_w, output_h, zoom)
+        # Convert BGR -> RGB for moviepy
+        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        frames.append(rgb)
+        pct = 2 + int(28 * (i + 1) / n)
+        _progress(pct, f"Processing image {i + 1}/{n}")
+
+    _progress(30, "Detecting beats...")
+
+    # --- 2. Beat detection ---
+    beat_times, duration, bpm = detect_beats(audio_path, sensitivity)
+
+    # Ensure we have at least 2 beat timestamps (cycle if needed)
+    if len(beat_times) < 2:
+        beat_times = [i * (duration / max(len(frames), 1)) for i in range(len(frames) + 1)]
+
+    _progress(35, f"Detected {len(beat_times)} beats at {bpm:.0f} BPM")
+
+    # --- 3. Build clips ---
+    clips = []
+    total_clips = min(len(frames), len(beat_times) - 1)
+    prev_rgb = None
+
+    for i in range(total_clips):
+        if _cancelled():
+            raise InterruptedError("Job cancelled")
+
+        rgb = frames[i % len(frames)]
+        clip_duration = beat_times[i + 1] - beat_times[i]
+        clip_duration = max(clip_duration, 1.0 / fps)
+
+        if transition == "flash" and prev_rgb is not None:
+            curr = rgb.copy()
+            _fps = fps
+
+            def _fl_flash(get_frame, t, _rgb=curr, _fps=_fps):
+                f = get_frame(t).astype(np.uint8)
+                bgr = cv2.cvtColor(f, cv2.COLOR_RGB2BGR)
+                bgr = _apply_flash(bgr, t, _fps)
+                return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+
+            clip = ImageClip(rgb, duration=clip_duration).fl(_fl_flash)
+
+        elif transition == "fade" and prev_rgb is not None:
+            prev = prev_rgb.copy()
+            curr = rgb.copy()
+            _dur = clip_duration
+
+            def _fl_fade(get_frame, t, _prev=prev, _curr=curr, _dur=_dur):
+                bgr_prev = cv2.cvtColor(_prev.astype(np.uint8), cv2.COLOR_RGB2BGR)
+                bgr_curr = cv2.cvtColor(_curr.astype(np.uint8), cv2.COLOR_RGB2BGR)
+                blended = _apply_fade(bgr_prev, bgr_curr, t, _dur)
+                return cv2.cvtColor(blended, cv2.COLOR_BGR2RGB)
+
+            clip = ImageClip(rgb, duration=clip_duration).fl(_fl_fade)
+
+        elif transition == "zoom_in":
+            curr = rgb.copy()
+            _dur = clip_duration
+
+            def _fl_zoom(get_frame, t, _curr=curr, _dur=_dur):
+                bgr = cv2.cvtColor(_curr.astype(np.uint8), cv2.COLOR_RGB2BGR)
+                bgr = _apply_zoom_in(bgr, t, _dur)
+                return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+
+            clip = ImageClip(rgb, duration=clip_duration).fl(_fl_zoom)
+
+        else:  # "cut" or first clip of flash/fade
+            clip = ImageClip(rgb, duration=clip_duration)
+
+        clips.append(clip)
+        prev_rgb = rgb
+
+        if i % max(1, total_clips // 10) == 0:
+            pct = 35 + int(55 * (i + 1) / total_clips)
+            _progress(pct, f"Building clip {i + 1}/{total_clips}")
+
+    _progress(90, "Concatenating clips...")
+
+    # --- 4. Concatenate & attach audio ---
+    final = concatenate_videoclips(clips, method="compose")
+    audio = AudioFileClip(audio_path).subclip(0, min(final.duration, duration))
+    final = final.set_audio(audio)
+
+    _progress(92, "Exporting video (this may take a while)...")
+
+    final.write_videofile(
+        output_path,
+        fps=fps,
+        codec="libx264",
+        audio_codec="aac",
+        logger=None,
+    )
+
+    _progress(100, "done")
+
+    return {
+        "bpm": bpm,
+        "duration": final.duration,
+        "beats": len(beat_times),
+        "photos_used": total_clips,
+    }
