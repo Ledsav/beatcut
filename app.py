@@ -128,3 +128,65 @@ def upload():
     t.start()
 
     return jsonify({"job_id": job_id})
+
+
+@app.route("/progress/<job_id>")
+def progress(job_id):
+    job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    def generate():
+        import time
+        last = 0
+        while True:
+            events = job["events"]
+            while last < len(events):
+                yield f"data: {events[last]}\n\n"
+                last += 1
+            if job["status"] in ("done", "error", "cancelled"):
+                break
+            time.sleep(0.2)
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.route("/download/<job_id>")
+def download(job_id):
+    job = jobs.get(job_id)
+    if not job or job["status"] != "done":
+        return jsonify({"error": "Not ready"}), 404
+
+    path = job["output_path"]
+    if not os.path.exists(path):
+        return jsonify({"error": "Output file missing"}), 500
+
+    def cleanup():
+        import time
+        time.sleep(5)
+        shutil.rmtree(job.get("workdir", ""), ignore_errors=True)
+        jobs.pop(job_id, None)
+
+    threading.Thread(target=cleanup, daemon=True).start()
+
+    return send_file(path, as_attachment=True, download_name="beatcut_output.mp4")
+
+
+@app.route("/cancel/<job_id>", methods=["POST"])
+def cancel(job_id):
+    job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    job["cancel_flag"][0] = True
+    return jsonify({"ok": True})
+
+
+if __name__ == "__main__":
+    app.run(debug=True, threaded=True, port=5000)
