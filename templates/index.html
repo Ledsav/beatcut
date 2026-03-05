@@ -94,7 +94,13 @@
       </div>
 
       <div class="setting-item setting-item--wide">
-        <label>Song Section <span id="val-section">Full song</span></label>
+        <div class="reel-label-row">
+          <label>Song Section <span id="val-section">Full song</span></label>
+          <button id="btn-reel-play" class="btn-reel-play" disabled aria-label="Play selection">
+            <svg id="icon-play" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            <svg id="icon-pause" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+          </button>
+        </div>
         <div class="reel-wrap reel-disabled" id="reel-wrap">
           <canvas id="waveform-canvas" class="reel-canvas"></canvas>
           <div class="reel-selection" id="reel-selection" style="left:0%;width:100%">

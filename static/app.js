@@ -228,7 +228,14 @@ let songDuration  = 0;   // seconds decoded from audio file
 let reelStartPct  = 0;   // 0.0 – 1.0
 let reelEndPct    = 1;
 let waveformPeaks = null; // Float32Array of normalised peak amplitudes
+let reelPlayPct   = null; // null = not playing, 0.0–1.0 = playhead position
+let audioObjectURL = null;
+let reelAudio      = null; // HTMLAudioElement used for preview playback
+let reelPlayRAF    = null; // requestAnimationFrame handle
 
+const btnReelPlay   = document.getElementById('btn-reel-play');
+const iconPlay      = document.getElementById('icon-play');
+const iconPause     = document.getElementById('icon-pause');
 const reelWrap      = document.getElementById('reel-wrap');
 const waveformCanvas= document.getElementById('waveform-canvas');
 const reelSelection = document.getElementById('reel-selection');
@@ -277,13 +284,32 @@ function drawWaveformCanvas() {
     const y      = (H * dpr - barH) / 2;
 
     if (waveformPeaks) {
+      // Dim bars that the playhead has already passed
+      const played = reelPlayPct !== null && iPct < reelPlayPct;
       ctx.fillStyle = inSel
-        ? `rgba(200,255,0,${0.45 + peak * 0.5})`
+        ? played
+          ? `rgba(200,255,0,${0.18 + peak * 0.2})`
+          : `rgba(200,255,0,${0.45 + peak * 0.5})`
         : `rgba(107,107,128,${0.12 + peak * 0.22})`;
     } else {
       ctx.fillStyle = `rgba(107,107,128,${0.07 + peak * 0.1})`;
     }
     ctx.fillRect(x, y, barW, barH);
+  }
+
+  // Draw playhead line
+  if (reelPlayPct !== null) {
+    const px = reelPlayPct * W * dpr;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    ctx.lineWidth   = Math.round(1.5 * dpr);
+    ctx.shadowColor = 'rgba(200,255,0,0.6)';
+    ctx.shadowBlur  = 6 * dpr;
+    ctx.beginPath();
+    ctx.moveTo(px, 0);
+    ctx.lineTo(px, H * dpr);
+    ctx.stroke();
+    ctx.restore();
   }
 }
 
@@ -311,11 +337,15 @@ function updateReelDisplay() {
 
 async function loadWaveform(file) {
   reelHint.textContent = 'Analysing audio…';
+  // Revoke previous blob URL
+  if (audioObjectURL) { URL.revokeObjectURL(audioObjectURL); audioObjectURL = null; }
+  audioObjectURL = URL.createObjectURL(file);
   try {
     const buf      = await file.arrayBuffer();
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     const decoded  = await audioCtx.decodeAudioData(buf);
     songDuration   = decoded.duration;
+    btnReelPlay.disabled = false;
 
     const ch        = decoded.getChannelData(0);
     const N         = 120;
@@ -349,10 +379,51 @@ async function loadWaveform(file) {
     songDuration  = 0;
     waveformPeaks = Array.from(PLACEHOLDER_PEAKS);
     reelWrap.classList.remove('reel-disabled');
+    btnReelPlay.disabled = false;
     reelHint.textContent = 'Drag handles to trim';
     drawWaveformCanvas();
   }
 }
+
+/* ── Reel play/pause ─────────────────────────────────── */
+function stopReelPlayback() {
+  if (reelAudio) { reelAudio.pause(); reelAudio = null; }
+  if (reelPlayRAF) { cancelAnimationFrame(reelPlayRAF); reelPlayRAF = null; }
+  reelPlayPct = null;
+  iconPlay.style.display  = '';
+  iconPause.style.display = 'none';
+  drawWaveformCanvas();
+}
+
+btnReelPlay.addEventListener('click', () => {
+  // If already playing, stop
+  if (reelAudio && !reelAudio.paused) { stopReelPlayback(); return; }
+
+  if (!audioObjectURL) return;
+
+  const startSec = reelStartPct * songDuration;
+  const endSec   = reelEndPct   * songDuration;
+
+  reelAudio = new Audio(audioObjectURL);
+  reelAudio.currentTime = startSec;
+
+  iconPlay.style.display  = 'none';
+  iconPause.style.display = '';
+
+  reelAudio.play().catch(err => { console.warn('Audio play error:', err); stopReelPlayback(); });
+
+  function tick() {
+    if (!reelAudio) return;
+    const t = reelAudio.currentTime;
+    if (t >= endSec) { stopReelPlayback(); return; }
+    reelPlayPct = t / songDuration;
+    drawWaveformCanvas();
+    reelPlayRAF = requestAnimationFrame(tick);
+  }
+  reelPlayRAF = requestAnimationFrame(tick);
+
+  reelAudio.onended = stopReelPlayback;
+});
 
 function setupHandleDrag(handle, isStart) {
   let active = false;
@@ -391,11 +462,14 @@ window.addEventListener('resize', drawWaveformCanvas);
 drawWaveformCanvas();
 
 function resetReel() {
+  stopReelPlayback();
+  if (audioObjectURL) { URL.revokeObjectURL(audioObjectURL); audioObjectURL = null; }
   songDuration  = 0;
   reelStartPct  = 0;
   reelEndPct    = 1;
   waveformPeaks = null;
   reelWrap.classList.add('reel-disabled');
+  btnReelPlay.disabled      = true;
   reelSelection.style.left  = '0%';
   reelSelection.style.width = '100%';
   reelTimeStart.innerHTML   = '—';
