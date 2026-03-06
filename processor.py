@@ -1,9 +1,11 @@
-import cv2
-import numpy as np
-import librosa
 import warnings
-from PIL import Image as PILImage, ImageFilter as PILImageFilter
-from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
+
+import cv2
+import librosa
+import numpy as np
+from moviepy.editor import AudioFileClip, ImageClip, concatenate_videoclips
+from PIL import Image as PILImage
+from PIL import ImageFilter as PILImageFilter
 
 warnings.filterwarnings("ignore")
 
@@ -391,12 +393,18 @@ def assemble_video(
     t_end   = end_time if end_time > 0 else duration
 
     # Trim beat list to selected window, then normalise to 0-based
+    span = t_end - t_start
     beat_times = [t for t in beat_times if t_start <= t <= t_end]
     beat_times = [t - t_start for t in beat_times]
 
+    # Always append the selection end as a sentinel so the last clip
+    # runs all the way to the end of the chosen section (not just to
+    # the last detected beat, which is almost always before the end).
+    if not beat_times or beat_times[-1] < span - 1.0 / fps:
+        beat_times.append(span)
+
     # Ensure we have at least 2 beat timestamps
     if len(beat_times) < 2:
-        span = t_end - t_start
         beat_times = [i * (span / max(len(frames), 1)) for i in range(len(frames) + 1)]
 
     _progress(35, f"Detected {len(beat_times)} sync points ({sync_mode} mode) at {bpm:.0f} BPM")
