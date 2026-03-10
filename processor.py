@@ -431,6 +431,168 @@ def _build_polaroid_clips(frames, beat_times, output_w, output_h, fps,
     return clips
 
 
+def _build_quad_stack_clips(frames, beat_times, output_w, output_h, fps,
+                             stack_size, progress_callback, cancel_flag):
+    """
+    Quad Stack template — repeating 3-phase cycle:
+
+    Phase 1 (4 beats): Quarters fill top-left → top-right → bottom-left → bottom-right,
+                        each with a flash on land.
+    Phase 2 (stack_size beats): Polaroids stack in the centre on top of the background.
+    Phase 3 (1 beat): Hero photo zooms from 0.5× to full screen (ease-out quad).
+
+    After Phase 3 the background and pile reset for the next cycle.
+    """
+    total = len(beat_times) - 1
+    if total == 0:
+        return []
+
+    cycle_len = 4 + stack_size + 1
+
+    # Quarter rects: (x1, y1, x2, y2)
+    hw, hh = output_w // 2, output_h // 2
+    quarter_rects = [
+        (0,  0,  hw,       hh),
+        (hw, 0,  output_w, hh),
+        (0,  hh, hw,       output_h),
+        (hw, hh, output_w, output_h),
+    ]
+
+    # ── Pre-render centre polaroids ──
+    pol_size  = int(min(output_w, output_h) * 0.35)
+    b_side    = max(int(pol_size * 0.07), 6)
+    b_top     = max(int(pol_size * 0.07), 6)
+    b_bottom  = max(int(pol_size * 0.22), 18)
+    rng       = np.random.default_rng(seed=13)
+    angles    = rng.uniform(-12, 12,           total + 1).tolist()
+    offsets_x = rng.integers(-output_w // 18, output_w // 18, total + 1).tolist()
+    offsets_y = rng.integers(-output_h // 18, output_h // 18, total + 1).tolist()
+    SHADOW_DX   = max(int(pol_size * 0.012), 4)
+    SHADOW_DY   = max(int(pol_size * 0.015), 5)
+    SHADOW_BLUR = max(int(pol_size * 0.018), 6)
+
+    pol_data = []
+    for i in range(total + 1):
+        rgb   = frames[i % len(frames)]
+        pil   = _make_polaroid_pil(rgb, pol_size, b_side, b_top, b_bottom)
+        rot   = pil.rotate(-angles[i], expand=True, resample=PILImage.BICUBIC)
+        alpha = rot.getchannel("A")
+        shad  = alpha.point(lambda p: int(p * 0.55))
+        shad  = shad.filter(PILImageFilter.GaussianBlur(radius=SHADOW_BLUR))
+        pol_data.append((rot, shad))
+
+    def _paste_pol_center(canvas, idx, px, py):
+        pol, shad = pol_data[idx]
+        black = PILImage.new("RGB", pol.size, (0, 0, 0))
+        canvas.paste(black, (px + SHADOW_DX, py + SHADOW_DY), shad)
+        canvas.paste(pol.convert("RGB"), (px, py), pol.getchannel("A"))
+
+    # ── Mutable cycle state ──
+    quad_canvas      = PILImage.new("RGB", (output_w, output_h), (0, 0, 0))
+    pol_pile_slots   = []   # (idx, px, py)
+
+    clips = []
+    frame_counter = 0
+
+    for i in range(total):
+        if cancel_flag is not None and cancel_flag[0]:
+            raise InterruptedError("Job cancelled")
+
+        clip_dur  = max(beat_times[i + 1] - beat_times[i], 1.0 / fps)
+        phase     = i % cycle_len
+        rgb       = frames[frame_counter % len(frames)]
+        frame_counter += 1
+
+        # ── Phase 1: fill a quarter ──────────────────────────────────
+        if phase < 4:
+            q_x1, q_y1, q_x2, q_y2 = quarter_rects[phase]
+            q_w, q_h = q_x2 - q_x1, q_y2 - q_y1
+            pil_q = PILImage.fromarray(rgb).resize((q_w, q_h), PILImage.LANCZOS)
+            quad_canvas = quad_canvas.copy()
+            quad_canvas.paste(pil_q, (q_x1, q_y1))
+            pol_pile_slots = []
+            base_rgb = np.array(quad_canvas)
+
+            _fps2 = fps
+            def _fl_qflash(gf, t, _base=base_rgb.copy(), _fps=_fps2):
+                bgr = cv2.cvtColor(_base, cv2.COLOR_RGB2BGR)
+                return cv2.cvtColor(_apply_flash(bgr, t, _fps), cv2.COLOR_BGR2RGB)
+
+            clip = ImageClip(base_rgb, duration=clip_dur).fl(_fl_qflash)
+
+        # ── Phase 2: stack a polaroid in the centre ──────────────────
+        elif phase < 4 + stack_size:
+            pol, _ = pol_data[i]
+            rx, ry = pol.size
+            px = output_w // 2 - rx // 2 + int(offsets_x[i])
+            py = output_h // 2 - ry // 2 + int(offsets_y[i])
+
+            composite = quad_canvas.copy()
+            for (si, sx, sy) in pol_pile_slots:
+                _paste_pol_center(composite, si, sx, sy)
+            _paste_pol_center(composite, i, px, py)
+            full_rgb = np.array(composite)
+
+            _b_base   = quad_canvas.copy()
+            _b_slots  = list(pol_pile_slots)
+            _i2, _px2, _py2 = i, px, py
+            _drop_px = int(min(output_w, output_h) * 0.14)
+
+            def _fl_drop(gf, t, _b=_b_base, _slots=_b_slots,
+                         _ii=_i2, _pxi=_px2, _pyi=_py2, _d=clip_dur,
+                         _dp=_drop_px):
+                p    = min(t / max(_d, 1e-6), 1.0)
+                ease = 1.0 - (1.0 - p) ** 2
+                dy   = int(_dp * (1.0 - ease))
+                c    = _b.copy()
+                for (si, sx, sy) in _slots:
+                    _paste_pol_center(c, si, sx, sy)
+                pol_r, shad_r = pol_data[_ii]
+                black = PILImage.new("RGB", pol_r.size, (0, 0, 0))
+                c.paste(black, (_pxi + SHADOW_DX, _pyi - dy + SHADOW_DY), shad_r)
+                c.paste(pol_r.convert("RGB"), (_pxi, _pyi - dy), pol_r.getchannel("A"))
+                return np.array(c)
+
+            clip = ImageClip(full_rgb, duration=clip_dur).fl(_fl_drop)
+            pol_pile_slots.append((i, px, py))
+
+        # ── Phase 3: hero zoom fills the screen ─────────────────────
+        else:
+            hero_rgb = rgb.copy()
+            _d3      = clip_dur
+
+            def _fl_hero(gf, t, _hr=hero_rgb, _d=_d3):
+                p     = min(t / max(_d, 1e-6), 1.0)
+                ease  = 1.0 - (1.0 - p) ** 2
+                scale = 0.5 + 0.5 * ease
+                hh2, ww2 = _hr.shape[:2]
+                crop_w = max(1, int(ww2 / scale))
+                crop_h = max(1, int(hh2 / scale))
+                x1     = max(0, (ww2 - crop_w) // 2)
+                y1     = max(0, (hh2 - crop_h) // 2)
+                x2     = min(ww2, x1 + crop_w)
+                y2     = min(hh2, y1 + crop_h)
+                crop   = _hr[y1:y2, x1:x2]
+                bgr    = cv2.cvtColor(crop.astype(np.uint8), cv2.COLOR_RGB2BGR)
+                out    = cv2.resize(bgr, (ww2, hh2), interpolation=cv2.INTER_LINEAR)
+                return cv2.cvtColor(out, cv2.COLOR_BGR2RGB)
+
+            clip = ImageClip(hero_rgb, duration=clip_dur).fl(_fl_hero)
+
+            # Reset for next cycle
+            quad_canvas     = PILImage.new("RGB", (output_w, output_h), (0, 0, 0))
+            pol_pile_slots  = []
+
+        clips.append(clip)
+
+        if i % max(1, total // 10) == 0:
+            pct = 35 + int(55 * (i + 1) / total)
+            if progress_callback:
+                progress_callback(pct, f"Building quad stack clip {i + 1}/{total}")
+
+    return clips
+
+
 def assemble_video(
     image_paths: list,
     audio_path: str,

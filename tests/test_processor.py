@@ -156,3 +156,17 @@ def test_assemble_video_accepts_keyframes_param():
     sig = inspect.signature(assemble_video)
     assert "keyframes" in sig.parameters
     assert sig.parameters["keyframes"].default is None
+
+
+def test_build_quad_stack_clips_returns_clips():
+    from processor import _build_quad_stack_clips
+    frames = [np.zeros((540, 540, 3), dtype=np.uint8) for _ in range(12)]
+    beat_times = [i * 0.5 for i in range(20)]
+    clips = _build_quad_stack_clips(
+        frames, beat_times,
+        output_w=540, output_h=540,
+        fps=24, stack_size=4,
+        progress_callback=None, cancel_flag=None,
+    )
+    assert len(clips) == len(beat_times) - 1
+    assert all(hasattr(c, "duration") for c in clips), "each item must be a moviepy clip"
