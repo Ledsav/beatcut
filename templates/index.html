@@ -51,6 +51,7 @@
           <option value="fade">Fade</option>
           <option value="zoom_in">Zoom In</option>
           <option value="polaroid">Polaroid Stack</option>
+          <option value="quad_stack">Quad Stack</option>
         </select>
       </div>
 
@@ -72,6 +73,11 @@
           <option value="fade">Fade (materialise)</option>
           <option value="cut">Cut (instant)</option>
         </select>
+      </div>
+
+      <div class="setting-item" id="quad-stack-item" style="display:none;">
+        <label for="range-stack-size">Stack Size <span id="val-stack-size">4</span></label>
+        <input type="range" id="range-stack-size" min="2" max="8" step="1" value="4" />
       </div>
 
       <div class="setting-item">

@@ -141,7 +141,9 @@ setupDrop(document.getElementById('zone-music'),  inputMusic);
 
 /* ── Polaroid entry visibility ──────────────────────── */
 function updatePolaroidVisibility() {
-  polaroidEntryItem.style.display = selTransition.value === 'polaroid' ? '' : 'none';
+  polaroidEntryItem.style.display = selTransition.value === 'polaroid'    ? '' : 'none';
+  document.getElementById('quad-stack-item').style.display =
+    selTransition.value === 'quad_stack' ? '' : 'none';
 }
 selTransition.addEventListener('change', updatePolaroidVisibility);
 
@@ -151,6 +153,11 @@ rangeSensitivity.addEventListener('input', () => {
 });
 rangeZoom.addEventListener('input', () => {
   valZoom.textContent = parseFloat(rangeZoom.value).toFixed(2);
+});
+
+document.getElementById('range-stack-size').addEventListener('input', () => {
+  document.getElementById('val-stack-size').textContent =
+    document.getElementById('range-stack-size').value;
 });
 
 /* ── Process ─────────────────────────────────────────── */
@@ -166,6 +173,7 @@ btnProcess.addEventListener('click', async () => {
   fd.append('zoom',        rangeZoom.value);
   fd.append('photo_filter', document.getElementById('sel-filter').value);
   fd.append('keyframes', serializeKeyframes());
+  fd.append('stack_size', document.getElementById('range-stack-size').value);
   fd.append('fps',         '24');
   // Section selector: 0/0 = full song sentinel
   if (songDuration > 0) {
@@ -550,6 +558,8 @@ function resetToUpload() {
   document.getElementById('sel-filter').value = 'none';
   keyframeState = {};
   renderKfList(null);
+  document.getElementById('range-stack-size').value = '4';
+  document.getElementById('val-stack-size').textContent = '4';
   updatePolaroidVisibility();
 
   progressBar.style.width     = '0%';
