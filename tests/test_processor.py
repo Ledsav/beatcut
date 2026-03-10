@@ -114,3 +114,37 @@ def test_assemble_video_accepts_photo_filter_param():
     sig = inspect.signature(assemble_video)
     assert "photo_filter" in sig.parameters
     assert sig.parameters["photo_filter"].default == "none"
+
+
+def test_apply_keyframes_no_pins_returns_cycling_sequence():
+    from processor import _apply_keyframes
+    frames = ["a", "b", "c"]
+    result = _apply_keyframes(frames, {}, total_clips=7)
+    assert result == ["a", "b", "c", "a", "b", "c", "a"]
+
+def test_apply_keyframes_first_pin_goes_to_slot_zero():
+    from processor import _apply_keyframes
+    frames = ["a", "b", "c"]
+    result = _apply_keyframes(frames, {2: "first"}, total_clips=5)
+    assert result[0] == "c", "first-pinned frame must be at index 0"
+
+def test_apply_keyframes_last_pin_goes_to_last_slot():
+    from processor import _apply_keyframes
+    frames = ["a", "b", "c"]
+    result = _apply_keyframes(frames, {1: "last"}, total_clips=5)
+    assert result[-1] == "b", "last-pinned frame must be at last index"
+
+def test_apply_keyframes_first_and_last_pins():
+    from processor import _apply_keyframes
+    frames = ["a", "b", "c", "d"]
+    result = _apply_keyframes(frames, {0: "first", 3: "last"}, total_clips=6)
+    assert result[0] == "a"
+    assert result[-1] == "d"
+    assert len(result) == 6
+
+def test_apply_keyframes_returns_exact_length():
+    from processor import _apply_keyframes
+    frames = ["a", "b"]
+    for n in (1, 3, 5, 10):
+        result = _apply_keyframes(frames, {}, total_clips=n)
+        assert len(result) == n, f"expected length {n}, got {len(result)}"

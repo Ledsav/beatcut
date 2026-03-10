@@ -78,6 +78,40 @@ def apply_filter(rgb: np.ndarray, filter_name: str) -> np.ndarray:
     return np.clip(out, 0, 255).astype(np.uint8)
 
 
+def _apply_keyframes(frames: list, keyframes: dict, total_clips: int) -> list:
+    """
+    Build a sequence of exactly `total_clips` frames honouring beat-pin constraints.
+
+    keyframes: {frame_index: "first" | "last"}
+      - "first" pins: placed at the start of the sequence (slot 0, 1, … in ascending index order)
+      - "last"  pins: placed at the end   (slots -N … -1 in ascending index order)
+      - remaining frames fill the middle via cycling
+
+    Returns a list of length total_clips.
+    """
+    if not keyframes or not frames:
+        return [frames[i % len(frames)] for i in range(total_clips)]
+
+    first_idxs = sorted(i for i, v in keyframes.items() if v == "first" and 0 <= i < len(frames))
+    last_idxs  = sorted(i for i, v in keyframes.items() if v == "last"  and 0 <= i < len(frames))
+    pinned     = set(first_idxs) | set(last_idxs)
+    other_idxs = [i for i in range(len(frames)) if i not in pinned]
+
+    first_frames = [frames[i] for i in first_idxs]
+    last_frames  = [frames[i] for i in last_idxs]
+    other_frames = [frames[i] for i in other_idxs] if other_idxs else frames
+
+    n_middle = total_clips - len(first_frames) - len(last_frames)
+    middle   = [other_frames[j % len(other_frames)] for j in range(max(0, n_middle))]
+
+    sequence = first_frames + middle + last_frames
+
+    # Guarantee exact length (edge case: more pins than clips)
+    while len(sequence) < total_clips:
+        sequence.append(other_frames[len(sequence) % len(other_frames)])
+    return sequence[:total_clips]
+
+
 def detect_and_crop(image_path: str, output_w: int, output_h: int, zoom: float):
     """
     Reads image_path, detects the largest face, centers the crop around
