@@ -158,6 +158,14 @@ def test_assemble_video_accepts_keyframes_param():
     assert sig.parameters["keyframes"].default is None
 
 
+def test_assemble_video_accepts_stack_size_param():
+    import inspect
+    from processor import assemble_video
+    sig = inspect.signature(assemble_video)
+    assert "stack_size" in sig.parameters
+    assert sig.parameters["stack_size"].default == 4
+
+
 def test_build_quad_stack_clips_returns_clips():
     from processor import _build_quad_stack_clips
     frames = [np.zeros((540, 540, 3), dtype=np.uint8) for _ in range(12)]

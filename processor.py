@@ -609,6 +609,7 @@ def assemble_video(
     polaroid_entry: str = "drop",
     photo_filter: str = "none",
     keyframes: dict = None,
+    stack_size: int = 4,
     progress_callback=None,
     cancel_flag=None,
 ) -> dict:
@@ -682,6 +683,11 @@ def assemble_video(
         clips = _build_polaroid_clips(
             ordered_frames, beat_times, output_w, output_h, fps,
             polaroid_entry, progress_callback, cancel_flag,
+        )
+    elif transition == "quad_stack":
+        clips = _build_quad_stack_clips(
+            ordered_frames, beat_times, output_w, output_h, fps,
+            stack_size, progress_callback, cancel_flag,
         )
     else:
         clips = []

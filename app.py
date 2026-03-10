@@ -96,6 +96,8 @@ def upload():
             except ValueError:
                 pass
 
+    stack_size = max(2, min(8, int(request.form.get("stack_size", 4))))
+
     output_path = os.path.join(workdir, "output.mp4")
     cancel_flag = [False]
 
@@ -135,6 +137,7 @@ def upload():
                 polaroid_entry=polaroid_entry,
                 photo_filter=photo_filter,
                 keyframes=keyframes,
+                stack_size=stack_size,
                 progress_callback=on_progress,
                 cancel_flag=cancel_flag,
             )
