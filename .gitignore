@@ -10,3 +10,4 @@ uploads/
 .github
 
 .pytest_cache/
+.worktrees/
