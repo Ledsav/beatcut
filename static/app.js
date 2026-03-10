@@ -34,16 +34,29 @@ const selSyncMode          = document.getElementById('sel-sync-mode');
 
 /* ── Key frames ──────────────────────────────────────── */
 let keyframeState = {};   // { fileIndex: "first" | "last" }
+let kfThumbURLs   = [];   // object URLs to revoke on next render
 
 const kfList = document.getElementById('kf-list');
 
+// Prevent any click inside the kf-list from bubbling to the upload zone
+kfList.addEventListener('click', e => e.stopPropagation());
+
 function renderKfList(files) {
+  kfThumbURLs.forEach(u => URL.revokeObjectURL(u));
+  kfThumbURLs = [];
   kfList.innerHTML = '';
   if (!files || files.length === 0) { kfList.style.display = 'none'; return; }
   kfList.style.display = '';
   Array.from(files).forEach((file, idx) => {
     const row = document.createElement('div');
     row.className = 'kf-row';
+
+    const thumbURL = URL.createObjectURL(file);
+    kfThumbURLs.push(thumbURL);
+    const thumb = document.createElement('img');
+    thumb.className = 'kf-thumb';
+    thumb.src = thumbURL;
+    thumb.alt = '';
 
     const name = document.createElement('span');
     name.className = 'kf-name';
@@ -56,7 +69,8 @@ function renderKfList(files) {
     badge.dataset.pin = pin;
     badge.textContent = pin === 'auto' ? 'Auto' : pin === 'first' ? 'First' : 'Last';
 
-    badge.addEventListener('click', () => {
+    badge.addEventListener('click', e => {
+      e.stopPropagation();
       const cur = keyframeState[idx] || 'auto';
       const next = cur === 'auto' ? 'first' : cur === 'first' ? 'last' : 'auto';
       if (next === 'auto') delete keyframeState[idx];
@@ -65,6 +79,7 @@ function renderKfList(files) {
       badge.textContent = next === 'auto' ? 'Auto' : next === 'first' ? 'First' : 'Last';
     });
 
+    row.appendChild(thumb);
     row.appendChild(name);
     row.appendChild(badge);
     kfList.appendChild(row);
@@ -557,6 +572,8 @@ function resetToUpload() {
   selSyncMode.value           = 'beat';
   document.getElementById('sel-filter').value = 'none';
   keyframeState = {};
+  kfThumbURLs.forEach(u => URL.revokeObjectURL(u));
+  kfThumbURLs = [];
   renderKfList(null);
   document.getElementById('range-stack-size').value = '4';
   document.getElementById('val-stack-size').textContent = '4';
