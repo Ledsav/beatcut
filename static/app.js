@@ -117,6 +117,7 @@ btnProcess.addEventListener('click', async () => {
   fd.append('sync_mode',   selSyncMode.value);
   fd.append('sensitivity', rangeSensitivity.value);
   fd.append('zoom',        rangeZoom.value);
+  fd.append('photo_filter', document.getElementById('sel-filter').value);
   fd.append('fps',         '24');
   // Section selector: 0/0 = full song sentinel
   if (songDuration > 0) {
@@ -498,6 +499,7 @@ function resetToUpload() {
   selTransition.value         = 'flash';
   selPolaroidEntry.value      = 'drop';
   selSyncMode.value           = 'beat';
+  document.getElementById('sel-filter').value = 'none';
   updatePolaroidVisibility();
 
   progressBar.style.width     = '0%';

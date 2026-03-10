@@ -78,6 +78,9 @@ def upload():
         shutil.rmtree(workdir, ignore_errors=True)
         return jsonify({"error": f"Invalid sync_mode: {sync_mode!r}"}), 400
     polaroid_entry  = request.form.get("polaroid_entry", "drop")
+    photo_filter = request.form.get("photo_filter", "none")
+    if photo_filter not in {"none", "vignette", "grain", "vintage", "faded"}:
+        photo_filter = "none"
 
     output_path = os.path.join(workdir, "output.mp4")
     cancel_flag = [False]
@@ -116,6 +119,7 @@ def upload():
                 end_time=end_time,
                 sync_mode=sync_mode,
                 polaroid_entry=polaroid_entry,
+                photo_filter=photo_filter,
                 progress_callback=on_progress,
                 cancel_flag=cancel_flag,
             )

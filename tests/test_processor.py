@@ -107,3 +107,10 @@ def test_apply_filter_faded_lifts_blacks():
     frame = np.zeros((100, 100, 3), dtype=np.uint8)
     out = apply_filter(frame, "faded")
     assert out[50, 50, 0] > 0, "faded should lift black pixels above zero"
+
+def test_assemble_video_accepts_photo_filter_param():
+    import inspect
+    from processor import assemble_video
+    sig = inspect.signature(assemble_video)
+    assert "photo_filter" in sig.parameters
+    assert sig.parameters["photo_filter"].default == "none"

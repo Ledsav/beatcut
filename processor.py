@@ -411,6 +411,7 @@ def assemble_video(
     end_time: float = 0,
     sync_mode: str = "beat",
     polaroid_entry: str = "drop",
+    photo_filter: str = "none",
     progress_callback=None,
     cancel_flag=None,
 ) -> dict:
@@ -442,6 +443,7 @@ def assemble_video(
         bgr, face_found = detect_and_crop(path, output_w, output_h, zoom)
         # Convert BGR -> RGB for moviepy
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        rgb = apply_filter(rgb, photo_filter)
         frames.append(rgb)
         pct = 2 + int(28 * (i + 1) / n)
         label = f"Processing image {i + 1}/{n}" if face_found else f"Processing image {i + 1}/{n} (no face detected, using center)"
