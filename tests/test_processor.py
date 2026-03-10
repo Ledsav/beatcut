@@ -148,3 +148,11 @@ def test_apply_keyframes_returns_exact_length():
     for n in (1, 3, 5, 10):
         result = _apply_keyframes(frames, {}, total_clips=n)
         assert len(result) == n, f"expected length {n}, got {len(result)}"
+
+
+def test_assemble_video_accepts_keyframes_param():
+    import inspect
+    from processor import assemble_video
+    sig = inspect.signature(assemble_video)
+    assert "keyframes" in sig.parameters
+    assert sig.parameters["keyframes"].default is None

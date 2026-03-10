@@ -446,6 +446,7 @@ def assemble_video(
     sync_mode: str = "beat",
     polaroid_entry: str = "drop",
     photo_filter: str = "none",
+    keyframes: dict = None,
     progress_callback=None,
     cancel_flag=None,
 ) -> dict:
@@ -465,6 +466,8 @@ def assemble_video(
 
     def _cancelled():
         return cancel_flag is not None and cancel_flag[0]
+
+    _keyframes = keyframes or {}
 
     _progress(2, "Loading face detection models...")
 
@@ -511,10 +514,11 @@ def assemble_video(
 
     # --- 3. Build clips (photos loop to fill all beats) ---
     total_clips = len(beat_times) - 1
+    ordered_frames = _apply_keyframes(frames, _keyframes, total_clips)
 
     if transition == "polaroid":
         clips = _build_polaroid_clips(
-            frames, beat_times, output_w, output_h, fps,
+            ordered_frames, beat_times, output_w, output_h, fps,
             polaroid_entry, progress_callback, cancel_flag,
         )
     else:
@@ -525,7 +529,7 @@ def assemble_video(
             if _cancelled():
                 raise InterruptedError("Job cancelled")
 
-            rgb = frames[i % len(frames)]
+            rgb = ordered_frames[i]
             clip_duration = beat_times[i + 1] - beat_times[i]
             clip_duration = max(clip_duration, 1.0 / fps)
 

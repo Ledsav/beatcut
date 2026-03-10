@@ -82,6 +82,20 @@ def upload():
     if photo_filter not in {"none", "vignette", "grain", "vintage", "faded"}:
         photo_filter = "none"
 
+    # keyframes: "0:first,2:last" → {0: "first", 2: "last"}
+    keyframes_raw = request.form.get("keyframes", "")
+    keyframes = {}
+    for part in keyframes_raw.split(","):
+        part = part.strip()
+        if ":" in part:
+            try:
+                idx_str, pin = part.split(":", 1)
+                idx = int(idx_str)
+                if pin in ("first", "last"):
+                    keyframes[idx] = pin
+            except ValueError:
+                pass
+
     output_path = os.path.join(workdir, "output.mp4")
     cancel_flag = [False]
 
@@ -120,6 +134,7 @@ def upload():
                 sync_mode=sync_mode,
                 polaroid_entry=polaroid_entry,
                 photo_filter=photo_filter,
+                keyframes=keyframes,
                 progress_callback=on_progress,
                 cancel_flag=cancel_flag,
             )
