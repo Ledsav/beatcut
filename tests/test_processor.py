@@ -44,7 +44,7 @@ def test_export_constants_exist():
     assert isinstance(processor.EXPORT_PRESET, str)
     assert isinstance(processor.EXPORT_THREADS, int)
     assert processor.EXPORT_THREADS >= 1
-    assert processor.PROFILE_EXPORT is False  # must be off in committed code
+    assert processor.PROFILE_EXPORT is False, "Revert PROFILE_EXPORT to False before committing"
 
 
 def test_detect_sync_points_sensitivity_subsamples():

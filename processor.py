@@ -14,6 +14,10 @@ EXPORT_PRESET  = "veryfast"   # libx264 preset: ultrafast/superfast/veryfast/fas
 EXPORT_THREADS = 4            # ffmpeg thread count
 PROFILE_EXPORT = False        # set True once to profile write_videofile, then revert
 
+_VALID_PRESETS = {"ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"}
+if EXPORT_PRESET not in _VALID_PRESETS:
+    raise ValueError(f"EXPORT_PRESET {EXPORT_PRESET!r} is not a valid libx264 preset")
+
 # Cascade classifiers loaded once at import time (not per-image)
 _CASCADE_FRONTAL = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 _CASCADE_PROFILE  = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_profileface.xml")
