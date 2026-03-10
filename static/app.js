@@ -32,6 +32,51 @@ const polaroidEntryItem    = document.getElementById('polaroid-entry-item');
 const selPolaroidEntry     = document.getElementById('sel-polaroid-entry');
 const selSyncMode          = document.getElementById('sel-sync-mode');
 
+/* ── Key frames ──────────────────────────────────────── */
+let keyframeState = {};   // { fileIndex: "first" | "last" }
+
+const kfList = document.getElementById('kf-list');
+
+function renderKfList(files) {
+  kfList.innerHTML = '';
+  if (!files || files.length === 0) { kfList.style.display = 'none'; return; }
+  kfList.style.display = '';
+  Array.from(files).forEach((file, idx) => {
+    const row = document.createElement('div');
+    row.className = 'kf-row';
+
+    const name = document.createElement('span');
+    name.className = 'kf-name';
+    name.textContent = file.name;
+    name.title = file.name;
+
+    const badge = document.createElement('button');
+    badge.className = 'kf-badge';
+    const pin = keyframeState[idx] || 'auto';
+    badge.dataset.pin = pin;
+    badge.textContent = pin === 'auto' ? 'Auto' : pin === 'first' ? 'First' : 'Last';
+
+    badge.addEventListener('click', () => {
+      const cur = keyframeState[idx] || 'auto';
+      const next = cur === 'auto' ? 'first' : cur === 'first' ? 'last' : 'auto';
+      if (next === 'auto') delete keyframeState[idx];
+      else keyframeState[idx] = next;
+      badge.dataset.pin = next;
+      badge.textContent = next === 'auto' ? 'Auto' : next === 'first' ? 'First' : 'Last';
+    });
+
+    row.appendChild(name);
+    row.appendChild(badge);
+    kfList.appendChild(row);
+  });
+}
+
+function serializeKeyframes() {
+  return Object.entries(keyframeState)
+    .map(([idx, pin]) => `${idx}:${pin}`)
+    .join(',');
+}
+
 const statPhotos = document.getElementById('stat-photos');
 const statBeats  = document.getElementById('stat-beats');
 const statBpm    = document.getElementById('stat-bpm');
@@ -53,6 +98,8 @@ function updateProcessButton() {
 inputPhotos.addEventListener('change', () => {
   const n = inputPhotos.files.length;
   photosStatus.textContent = n > 0 ? `${n} photo${n > 1 ? 's' : ''} selected` : 'No photos selected';
+  keyframeState = {};
+  renderKfList(inputPhotos.files);
   updateProcessButton();
 });
 
@@ -118,6 +165,7 @@ btnProcess.addEventListener('click', async () => {
   fd.append('sensitivity', rangeSensitivity.value);
   fd.append('zoom',        rangeZoom.value);
   fd.append('photo_filter', document.getElementById('sel-filter').value);
+  fd.append('keyframes', serializeKeyframes());
   fd.append('fps',         '24');
   // Section selector: 0/0 = full song sentinel
   if (songDuration > 0) {
@@ -500,6 +548,8 @@ function resetToUpload() {
   selPolaroidEntry.value      = 'drop';
   selSyncMode.value           = 'beat';
   document.getElementById('sel-filter').value = 'none';
+  keyframeState = {};
+  renderKfList(null);
   updatePolaroidVisibility();
 
   progressBar.style.width     = '0%';
