@@ -62,6 +62,7 @@ def test_apply_filter_none_returns_unchanged():
     frame[:] = (128, 64, 32)
     result = apply_filter(frame, "none")
     np.testing.assert_array_equal(result, frame)
+    assert result is not frame, "none filter must return a copy, not the original array"
 
 def test_apply_filter_returns_same_shape():
     from processor import apply_filter
@@ -90,3 +91,19 @@ def test_apply_filter_unknown_raises():
     frame = np.zeros((50, 50, 3), dtype=np.uint8)
     with pytest.raises(ValueError, match="Unknown filter"):
         apply_filter(frame, "nonexistent")
+
+def test_apply_filter_vintage_warms_tone():
+    from processor import apply_filter
+    # Neutral grey input — vintage should increase R channel relative to B at center
+    frame = np.full((200, 200, 3), 128, dtype=np.uint8)
+    out = apply_filter(frame, "vintage")
+    center_r = int(out[100, 100, 0])
+    center_b = int(out[100, 100, 2])
+    assert center_r > center_b, "vintage should produce warmer tone (higher R than B)"
+
+def test_apply_filter_faded_lifts_blacks():
+    from processor import apply_filter
+    # Pure black input — faded should lift it above zero
+    frame = np.zeros((100, 100, 3), dtype=np.uint8)
+    out = apply_filter(frame, "faded")
+    assert out[50, 50, 0] > 0, "faded should lift black pixels above zero"

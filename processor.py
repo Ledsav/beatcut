@@ -31,7 +31,7 @@ def apply_filter(rgb: np.ndarray, filter_name: str) -> np.ndarray:
     filter_name: "none" | "vignette" | "grain" | "vintage" | "faded"
     """
     if filter_name == "none":
-        return rgb
+        return rgb.copy()
 
     h, w = rgb.shape[:2]
     out = rgb.astype(np.float32)
@@ -52,13 +52,16 @@ def apply_filter(rgb: np.ndarray, filter_name: str) -> np.ndarray:
         out = out + noise
 
     elif filter_name == "vintage":
-        out[:, :, 0] = out[:, :, 0] + 15   # R +15
-        out[:, :, 2] = out[:, :, 2] - 10   # B -10
+        # Desaturate first (luminance from original values)
         lum = 0.299 * out[:, :, 0] + 0.587 * out[:, :, 1] + 0.114 * out[:, :, 2]
         lum = lum[:, :, np.newaxis]
         out = out * 0.75 + lum * 0.25
-        ys = np.linspace(-1, 1, h)
-        xs = np.linspace(-1, 1, w)
+        # Warm tone shift applied after desaturation
+        out[:, :, 0] = out[:, :, 0] + 15   # R +15
+        out[:, :, 2] = out[:, :, 2] - 10   # B -10
+        # Light vignette
+        ys = np.linspace(-1, 1, out.shape[0])
+        xs = np.linspace(-1, 1, out.shape[1])
         xv, yv = np.meshgrid(xs, ys)
         dist = np.sqrt(xv ** 2 + yv ** 2)
         mask = np.exp(-(dist ** 2) / (2 * 1.2 ** 2))
