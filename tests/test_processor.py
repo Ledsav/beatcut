@@ -54,3 +54,39 @@ def test_detect_sync_points_sensitivity_subsamples():
     times_sparse, _, _ = detect_sync_points(path, sensitivity=0.5, sync_mode="beat")
     # Higher sensitivity should produce more or equal sync points
     assert len(times_dense) >= len(times_sparse)
+
+
+def test_apply_filter_none_returns_unchanged():
+    from processor import apply_filter
+    frame = np.zeros((100, 100, 3), dtype=np.uint8)
+    frame[:] = (128, 64, 32)
+    result = apply_filter(frame, "none")
+    np.testing.assert_array_equal(result, frame)
+
+def test_apply_filter_returns_same_shape():
+    from processor import apply_filter
+    frame = np.random.randint(0, 255, (200, 200, 3), dtype=np.uint8)
+    for name in ("vignette", "grain", "vintage", "faded"):
+        out = apply_filter(frame, name)
+        assert out.shape == frame.shape, f"filter={name} changed shape"
+        assert out.dtype == np.uint8, f"filter={name} wrong dtype"
+
+def test_apply_filter_vignette_darkens_corners():
+    from processor import apply_filter
+    frame = np.full((200, 200, 3), 200, dtype=np.uint8)
+    out = apply_filter(frame, "vignette")
+    center = int(out[100, 100, 0])
+    corner = int(out[0, 0, 0])
+    assert corner < center, "vignette should darken corners vs center"
+
+def test_apply_filter_grain_changes_pixels():
+    from processor import apply_filter
+    frame = np.full((100, 100, 3), 128, dtype=np.uint8)
+    out = apply_filter(frame, "grain")
+    assert not np.array_equal(out, frame), "grain should change pixel values"
+
+def test_apply_filter_unknown_raises():
+    from processor import apply_filter
+    frame = np.zeros((50, 50, 3), dtype=np.uint8)
+    with pytest.raises(ValueError, match="Unknown filter"):
+        apply_filter(frame, "nonexistent")

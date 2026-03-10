@@ -23,6 +23,58 @@ _CASCADE_FRONTAL = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_fr
 _CASCADE_PROFILE  = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_profileface.xml")
 
 
+def apply_filter(rgb: np.ndarray, filter_name: str) -> np.ndarray:
+    """
+    Apply a stylised photo filter to an RGB numpy frame (H×W×3, uint8).
+    Returns a new uint8 array of the same shape.
+
+    filter_name: "none" | "vignette" | "grain" | "vintage" | "faded"
+    """
+    if filter_name == "none":
+        return rgb
+
+    h, w = rgb.shape[:2]
+    out = rgb.astype(np.float32)
+
+    if filter_name == "vignette":
+        ys = np.linspace(-1, 1, h)
+        xs = np.linspace(-1, 1, w)
+        xv, yv = np.meshgrid(xs, ys)
+        dist = np.sqrt(xv ** 2 + yv ** 2)
+        sigma = 0.85
+        mask = np.exp(-(dist ** 2) / (2 * sigma ** 2))
+        mask = mask[:, :, np.newaxis]
+        out = out * mask
+
+    elif filter_name == "grain":
+        rng = np.random.default_rng(seed=42)
+        noise = rng.normal(0, 12, out.shape)
+        out = out + noise
+
+    elif filter_name == "vintage":
+        out[:, :, 0] = out[:, :, 0] + 15   # R +15
+        out[:, :, 2] = out[:, :, 2] - 10   # B -10
+        lum = 0.299 * out[:, :, 0] + 0.587 * out[:, :, 1] + 0.114 * out[:, :, 2]
+        lum = lum[:, :, np.newaxis]
+        out = out * 0.75 + lum * 0.25
+        ys = np.linspace(-1, 1, h)
+        xs = np.linspace(-1, 1, w)
+        xv, yv = np.meshgrid(xs, ys)
+        dist = np.sqrt(xv ** 2 + yv ** 2)
+        mask = np.exp(-(dist ** 2) / (2 * 1.2 ** 2))
+        out = out * mask[:, :, np.newaxis]
+
+    elif filter_name == "faded":
+        out = out * 0.85 + 25
+        out[:, :, 0] = out[:, :, 0] - 5   # R -5
+        out[:, :, 2] = out[:, :, 2] + 5   # B +5
+
+    else:
+        raise ValueError(f"Unknown filter: {filter_name!r}. Expected: none, vignette, grain, vintage, faded")
+
+    return np.clip(out, 0, 255).astype(np.uint8)
+
+
 def detect_and_crop(image_path: str, output_w: int, output_h: int, zoom: float):
     """
     Reads image_path, detects the largest face, centers the crop around
