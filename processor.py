@@ -9,6 +9,11 @@ from PIL import ImageFilter as PILImageFilter
 
 warnings.filterwarnings("ignore")
 
+# ── Export tuning ────────────────────────────────────────────────────────────
+EXPORT_PRESET  = "veryfast"   # libx264 preset: ultrafast/superfast/veryfast/faster/fast/medium
+EXPORT_THREADS = 4            # ffmpeg thread count
+PROFILE_EXPORT = False        # set True once to profile write_videofile, then revert
+
 # Cascade classifiers loaded once at import time (not per-image)
 _CASCADE_FRONTAL = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 _CASCADE_PROFILE  = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_profileface.xml")
@@ -485,13 +490,27 @@ def assemble_video(
 
     _progress(92, "Exporting video (this may take a while)...")
 
+    if PROFILE_EXPORT:
+        import cProfile, pstats, io
+        pr = cProfile.Profile()
+        pr.enable()
+
     final.write_videofile(
         output_path,
         fps=fps,
         codec="libx264",
         audio_codec="aac",
+        preset=EXPORT_PRESET,
+        threads=EXPORT_THREADS,
         logger=None,
     )
+
+    if PROFILE_EXPORT:
+        pr.disable()
+        buf = io.StringIO()
+        ps = pstats.Stats(pr, stream=buf).sort_stats("cumulative")
+        ps.print_stats(20)
+        print("\n=== EXPORT PROFILE ===\n" + buf.getvalue())
 
     _progress(99, "Export complete, preparing download...")
 

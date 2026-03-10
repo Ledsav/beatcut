@@ -36,6 +36,17 @@ def test_detect_sync_points_all_modes():
         assert duration > 0, f"mode={mode} returned zero duration"
 
 
+def test_export_constants_exist():
+    import processor
+    assert hasattr(processor, "EXPORT_PRESET")
+    assert hasattr(processor, "EXPORT_THREADS")
+    assert hasattr(processor, "PROFILE_EXPORT")
+    assert isinstance(processor.EXPORT_PRESET, str)
+    assert isinstance(processor.EXPORT_THREADS, int)
+    assert processor.EXPORT_THREADS >= 1
+    assert processor.PROFILE_EXPORT is False  # must be off in committed code
+
+
 def test_detect_sync_points_sensitivity_subsamples():
     from processor import detect_sync_points
     path = _make_audio(duration_s=10.0)
