@@ -4,6 +4,7 @@ __pycache__/
 *.pyo
 uploads/
 *.mp4
+!docs/gallery/*.mp4
 .env
 
 .claude
