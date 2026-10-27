@@ -8,8 +8,8 @@ Beat-synced, face-centered slideshow video generator.
 
 ## Prerequisites
 
-- Python 3.9+
-- ffmpeg installed on your system
+- Python 3.12 (developed on 3.12.10; `moviepy` is pinned to 1.0.3, newer Pythons are untested)
+- ffmpeg installed and on your `PATH` (`ffmpeg -version` should work in a new terminal)
 
 ### Install ffmpeg
 
@@ -33,14 +33,26 @@ sudo apt update && sudo apt install ffmpeg
 ## Setup
 
 ```bash
+git clone https://github.com/Ledsav/beatcut.git
+cd beatcut
 python -m venv .venv
-source .venv/Scripts/activate   # Windows (Git Bash)
+source .venv/Scripts/activate   # Windows (Git Bash); PowerShell: .venv\Scripts\Activate.ps1
 # source .venv/bin/activate     # macOS / Linux
-pip install -r requirements.txt
+pip install -r requirements-dev.txt   # requirements.txt + pytest
 python app.py
 ```
 
 Open http://localhost:5000 in your browser.
+
+In VS Code, **Terminal → Run Task… → Setup (fresh clone)** creates `.venv`, installs `requirements-dev.txt`, checks that ffmpeg is on `PATH` (it stops with a message if not) and runs the tests. **Dev** starts the app.
+
+## Testing
+
+```bash
+python -m pytest -v   # tests/test_processor.py, with the venv active
+```
+
+The tests build their own short audio and images, so no sample files are needed.
 
 ## Gallery
 
@@ -71,5 +83,6 @@ See it in motion: [`docs/gallery/usecase.gif`](docs/gallery/usecase.gif) (full w
 | `ffmpeg not found` | Install ffmpeg and ensure it's in your PATH. Run `ffmpeg -version` to confirm. |
 | `No faces detected` | App falls back to image center. Check that photos contain forward-facing or profile faces. |
 | `Audio decode error` | Ensure the audio file is a valid MP3, WAV, FLAC, or OGG. Re-export from your DAW if corrupt. |
+| `module 'cv2' has no attribute 'CascadeClassifier'` | OpenCV 5 is installed. Run `pip install -r requirements.txt` (it pins `opencv-python<5`). |
 | `moviepy version mismatch` | Run `pip install moviepy==1.0.3` — newer versions break the API used here. |
 | `SSE stream hangs` | Ensure Flask is running with `threaded=True` (it is by default in `app.run()`). |

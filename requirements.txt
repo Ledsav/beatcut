@@ -1,5 +1,5 @@
 flask>=2.3
-opencv-python>=4.8
+opencv-python>=4.8,<5   # 5.0 removed cv2.CascadeClassifier (face detection)
 librosa>=0.10
 moviepy==1.0.3
 numpy>=1.24

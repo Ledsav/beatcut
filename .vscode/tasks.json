@@ -1,0 +1,62 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "setup: create venv",
+      "type": "shell",
+      "command": "python3 -m venv .venv",
+      "windows": {"command": "python -m venv .venv"},
+      "problemMatcher": []
+    },
+    {
+      "label": "setup: install requirements",
+      "type": "shell",
+      "command": ".venv/bin/python -m pip install -r requirements-dev.txt",
+      "windows": {"command": ".venv\\Scripts\\python -m pip install -r requirements-dev.txt"},
+      "problemMatcher": []
+    },
+    {
+      "label": "setup: check ffmpeg",
+      "type": "shell",
+      "command": ".venv/bin/python -c \"import shutil,sys; shutil.which('ffmpeg') or sys.exit('ffmpeg is not on PATH. Install it (Windows: winget install ffmpeg, macOS: brew install ffmpeg), restart VS Code, then run Setup (fresh clone) again.'); print('ffmpeg OK')\"",
+      "windows": {"command": ".venv\\Scripts\\python -c \"import shutil,sys; shutil.which('ffmpeg') or sys.exit('ffmpeg is not on PATH. Install it (Windows: winget install ffmpeg, macOS: brew install ffmpeg), restart VS Code, then run Setup (fresh clone) again.'); print('ffmpeg OK')\""},
+      "problemMatcher": []
+    },
+    {
+      "label": "setup: run tests",
+      "type": "shell",
+      "command": ".venv/bin/python -m pytest -q",
+      "windows": {"command": ".venv\\Scripts\\python -m pytest -q"},
+      "problemMatcher": []
+    },
+    {
+      "label": "Setup (fresh clone)",
+      "detail": "Creates .venv, installs requirements-dev.txt, checks ffmpeg, runs pytest",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "setup: create venv",
+        "setup: install requirements",
+        "setup: check ffmpeg",
+        "setup: run tests"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Dev",
+      "detail": "Flask app on http://localhost:5000",
+      "type": "shell",
+      "command": ".venv/bin/python app.py",
+      "windows": {"command": ".venv\\Scripts\\python app.py"},
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Test",
+      "type": "shell",
+      "command": ".venv/bin/python -m pytest -v",
+      "windows": {"command": ".venv\\Scripts\\python -m pytest -v"},
+      "problemMatcher": [],
+      "group": {"kind": "test", "isDefault": true}
+    }
+  ]
+}
